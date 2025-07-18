@@ -1,13 +1,15 @@
 // ==UserScript==
-// @name         淘宝工具箱 1.0
+// @name         淘宝工具箱
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.0.1
 // @description  淘宝后台增强
 // @author       xchen
 // @match        https://item.upload.taobao.com/*
 // @match        https://sell.publish.tmall.com/*
 // @grant        none
 // @run-at       document-start
+// @updateURL    https://cdn.jsdelivr.net/gh/leoFitz1024/script@latest/TaoBaoTools.js
+// @downloadURL  https://cdn.jsdelivr.net/gh/leoFitz1024/script@latest/TaoBaoTools.js
 // ==/UserScript==
 
 (function () {
