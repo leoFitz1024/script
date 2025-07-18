@@ -8,8 +8,8 @@
 // @icon         https://lf1-fe.ecombdstatic.com/obj/eden-cn/upqphj/homepage/icon.svg
 // @grant        none
 // @run-at       document-start
-// @updateURL    https://cdn.jsdelivr.net/gh/leoFitz1024/script@latest/DouYinTools.js
-// @downloadURL  https://cdn.jsdelivr.net/gh/leoFitz1024/script@latest/DouYinTools.js
+// @updateURL    https://cdn.jsdmirror.com/gh/leoFitz1024/script@latest/DouYinTools.js
+// @downloadURL  https://cdn.jsdmirror.com/gh/leoFitz1024/script@latest/DouYinTools.js
 // ==/UserScript==
 
 (function () {
