@@ -8,8 +8,8 @@
 // @match        https://sell.publish.tmall.com/*
 // @grant        none
 // @run-at       document-start
-// @updateURL    https://cdn.jsdelivr.net/gh/leoFitz1024/script@latest/TaoBaoTools.js
-// @downloadURL  https://cdn.jsdelivr.net/gh/leoFitz1024/script@latest/TaoBaoTools.js
+// @updateURL    https://cdn.jsdmirror.com/gh/leoFitz1024/script@latest/TaoBaoTools.js
+// @downloadURL  https://cdn.jsdmirror.com/gh/leoFitz1024/script@latest/TaoBaoTools.js
 // ==/UserScript==
 
 (function () {
