@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         淘宝工具箱
 // @namespace    http://tampermonkey.net/
-// @version      1.0.1
+// @version      1.0.2
 // @description  淘宝后台增强
 // @author       xchen
 // @match        https://item.upload.taobao.com/*
@@ -194,8 +194,15 @@
                     for (let i = 0; i < dataSource.length; i++){
                         const item = dataSource[i];
                         const valueItem = value[i];
-                        const color = item.props[0].text
-                        const size = item.props[1].text.replace('码','')
+                        let color;
+                        let size;
+                        if (item.props[0].label == "颜色分类"){
+                            color = item.props[0].text
+                            size = item.props[1].text.replace('码','')
+                        } else {
+                            size = item.props[0].text.replace('码','')
+                            color = item.props[1].text
+                        }
                         // 获取用户输入的前缀
                         const prefix = prefixMap[color] || ''
                         const suffix = suffixMap[color] || ''
