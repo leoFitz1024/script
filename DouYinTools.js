@@ -6,7 +6,10 @@
 // @author       xchen
 // @match        https://*.jinritemai.com/*
 // @icon         https://lf1-fe.ecombdstatic.com/obj/eden-cn/upqphj/homepage/icon.svg
-// @grant        none
+// @connect       www.erp321.com
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_xmlhttpRequest
 // @run-at       document-start
 // @updateURL    https://cdn.jsdmirror.com/gh/leoFitz1024/script@latest/DouYinTools.js
 // @downloadURL  https://cdn.jsdmirror.com/gh/leoFitz1024/script@latest/DouYinTools.js
@@ -63,7 +66,7 @@
     let productListEnhance = null
     window.addEventListener('popstate', function (event) {
         //判断url是否为直播页面
-        if (location.href.includes('/dashboard/live/control?')) {
+        if (location.href.includes('ffa/content-tool/live/control?')) {
             if (!liveEnhance) {
                 liveEnhance = new LiveEnhance()
             }
@@ -79,7 +82,174 @@
             productListEnhance = null
         }
     })
+
     //==方法区====/
+
+    /**
+     * 监听指定元素下子元素的动态变化
+     * @param {string|Element} target - 要监听的元素或选择器
+     * @param {Function} callback - 变化时触发的回调函数
+     * @param {Object} options - 配置选项
+     * @returns {Function} 停止监听的函数
+     */
+    function observeElementChanges(target, options = {}, callback,) {
+        const {
+            childList = true,           // 监听子节点变化
+            subtree = true,             // 监听所有后代节点
+            attributes = false,         // 监听属性变化
+            attributeFilter = null,     // 指定要监听的属性
+            characterData = false,      // 监听文本内容变化
+            debounce = 100,             // 防抖时间(ms)
+            immediate = false,          // 是否立即执行一次回调
+            autoStart = true            // 是否自动开始监听
+        } = options;
+        // 获取目标元素
+        const element = typeof target === 'string'
+            ? document.querySelector(target)
+            : target;
+
+        if (!element) {
+            console.warn('Observe: 目标元素未找到', target);
+            return () => {
+            };
+        }
+
+        let mutationTimeout;
+        let isObserving = false;
+
+        // 防抖处理
+        const debouncedCallback = (mutations, observer) => {
+            clearTimeout(mutationTimeout);
+            mutationTimeout = setTimeout(() => {
+                callback(mutations, observer, element);
+            }, debounce);
+        };
+
+        // 创建观察器
+        const observer = new MutationObserver(debouncedCallback);
+
+        // 观察器配置
+        const observerConfig = {
+            childList,
+            subtree,
+            attributes,
+            characterData
+        };
+
+        if (attributes && attributeFilter) {
+            observerConfig.attributeFilter = attributeFilter;
+        }
+
+        // 开始监听
+        const start = () => {
+            if (!isObserving) {
+                observer.observe(element, observerConfig);
+                isObserving = true;
+                console.log('Observe: 开始监听元素变化', element);
+            }
+        };
+
+        // 停止监听
+        const stop = () => {
+            if (isObserving) {
+                observer.disconnect();
+                clearTimeout(mutationTimeout);
+                isObserving = false;
+                console.log('Observe: 停止监听元素变化', element);
+            }
+        };
+
+        // 重新开始监听
+        const restart = () => {
+            stop();
+            start();
+        };
+
+        // 立即执行一次回调（如果需要）
+        if (immediate) {
+            setTimeout(() => callback([], observer, element), 0);
+        }
+
+        // 自动开始
+        if (autoStart) {
+            start();
+        }
+
+        // 返回控制方法
+        return {
+            stop,
+            start: restart,
+            restart,
+            element,
+            isObserving: () => isObserving
+        };
+    }
+
+    function sendHttpRequest(method, url, headers = {}, data = null, callback) {
+        // 设置请求的默认头部
+        const defaultHeaders = {
+            'Content-Type': 'application/json',  // 默认 Content-Type 为 application/json
+            ...headers  // 合并用户传入的 headers
+        };
+
+        // 创建请求
+        GM_xmlhttpRequest({
+            method: method,  // 请求方法 ('GET' 或 'POST')
+            url: url,  // 请求 URL
+            headers: defaultHeaders,  // 请求头
+            data: method === 'POST' || method === 'PUT' ? data : null,  // POST 请求时附带数据
+            onload: function (response) {
+                // 请求成功，调用回调函数并传入返回的响应数据
+                if (response.status === 200) {
+                    callback(null, response.responseText);
+                } else {
+                    console.log(response)
+                    showMessage('error', `Request failed with status: ${response.status}`);
+                }
+            },
+            onerror: function (error) {
+                showMessage('error', `Request error: ${error}`);
+            }
+        });
+    }
+
+    // 6. **封装等待元素出现的方法**
+    function waitForElementByXPath(xpath, timeout = 10000) {
+        return new Promise((resolve, reject) => {
+            // 先检查是否已经存在
+            const element = document.evaluate(
+                xpath, document, null,
+                XPathResult.FIRST_ORDERED_NODE_TYPE, null
+            ).singleNodeValue;
+
+            if (element) {
+                resolve(element);
+                return;
+            }
+
+            const observer = new MutationObserver(() => {
+                const element = document.evaluate(
+                    xpath, document, null,
+                    XPathResult.FIRST_ORDERED_NODE_TYPE, null
+                ).singleNodeValue;
+
+                if (element) {
+                    observer.disconnect();
+                    resolve(element);
+                }
+            });
+
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+
+            setTimeout(() => {
+                observer.disconnect();
+                reject(new Error(`等待元素超时: ${xpath}`));
+            }, timeout);
+        });
+    }
 
     // 复制内容到剪切板
     function copyToClipboard(text) {
@@ -92,7 +262,9 @@
             console.log('=====商品列表页增强=====')
             this.productMap = new Map()
             this.createMonitor()
+            this.stockEditPlugin()
         }
+
 
         // 更新商品列表
         updateProductMap(productListRes) {
@@ -101,7 +273,7 @@
                 const product = productListRes.data[i]
                 if (product.product_format_new && product.product_format_new[3171] && product.product_format_new[3171][0]) {
                     const code = product.product_format_new[3171][0]['name']
-                    if (code){
+                    if (code) {
                         this.productMap.set(product.product_id, code)
                     }
                 }
@@ -163,6 +335,122 @@
                         copyToClipboard(codeDiv.dataset.code)
                     })
                 })
+            }
+        }
+
+        stockEditPlugin() {
+
+            // ecom-g-sp-icon sp-icon-parcel style_editIcon__cahfa
+
+            // 等待指定XPath元素出现，最多等待5000毫秒
+            waitForElementByXPath('//tbody[contains(@class, "ecom-g-table-tbody")]', 5000).then((element) => {
+                element.addEventListener('click', function (event) {
+                    // 检查是否是目标按钮
+                    if (event.target.matches('svg.icon')) {
+                        waitForElementByXPath("//div[@class='index_filterBox__xQbII']", 5000).then((filterBox) => {
+                            let syncBtn = Object.assign(document.createElement('button'), {
+                                innerText: '同步库存',
+                                style: 'border-radius:8px;background:blue;color:white;padding:2px 16px;border:none;cursor:pointer;position:absolute;right:0px;'
+                            });
+                            filterBox.lastElementChild.appendChild(syncBtn)
+                            syncBtn.addEventListener('click', () => {
+                                syncStock()
+                            })
+                        })
+                    }
+                });
+            })
+
+
+            function syncStock() {
+                console.log('同步库存')
+                let elementById = document.getElementById("__ffa-goods-popup-container__");
+                const eTableEles = elementById.querySelectorAll('div.ecom-g-table-container')
+               
+                let values = Object.values(eTableEles[0]);
+                //必须取第一个元素
+                const fiberNode = values[0]
+                let dataList = fiberNode.memoizedProps.children.props.children[1].props.data
+                let skuIds = new Set()
+                dataList.forEach(datum => {
+                    let fc = datum.tableInfo.fc;
+                    let rowData = fc.getValue();
+                    let code = rowData.code.replaceAll("=", "").replaceAll("+", "");
+                    let codeFlag = code.substring(0, code.length - 4);
+                    skuIds.add(codeFlag)
+                })
+                getStockFromErp(Array.from(skuIds)).then(stockMap => {
+                    console.log(stockMap)
+                    dataList.forEach(datum => {
+                        let fc = datum.tableInfo.fc;
+                        let header = datum.header;
+                        let rowData = fc.getValue();
+                        let code = rowData.code.replaceAll("=","").replaceAll("+", "");
+                        if (header[2]['name'].includes("天内发货") || !stockMap.has(code)) {
+                            console.log("不符合条件，跳过:", header[2]['name'], code)
+                            return
+                        }
+                        let stockGetNum = stockMap.get(code);
+                        if (stockGetNum < 0) {
+                            stockGetNum = 0
+                        }
+                        let lastNum = rowData.num
+                        rowData.num = stockGetNum + ''
+                        fc.root.emit()
+                        console.log(`skuId:${code}，更新库存:${lastNum}===》${stockGetNum}`)
+                    })
+                })
+                console.log('现货库存更新完成')
+            }
+
+            function getStockFromErp(skuIds) {
+                console.log("查询库存：", skuIds)
+                return new Promise((resolve, reject) => {
+                    let erp321CooKie = GM_getValue("erp321CooKie", "");
+                    // 获取ERP321Cookie值，如果为空则不做处理
+                    if (erp321CooKie === "") {
+
+                    }
+                    let skuStockMap = new Map()
+                    let finishedCount = 0
+                    for (let i = 0; i < skuIds.length; i++) {
+                        let skuId = skuIds[i];
+                        let callBackParam = {
+                            "Method": "LoadDataToJSON",
+                            "Args": ["1", `[{"k":"sku_id","v":"${skuId}","c":"like"}]`, "{}"]
+                        }
+                        let callBackParamStr = JSON.stringify(callBackParam);
+                        let params = `__VIEWSTATE=%2FwEPDwUKMTkyMTExMDQ5NWRk9w9%2BBwzZIG166vk7VBNHl%2B9FDaU%3D&__VIEWSTATEGENERATOR=491FF2E7&sku_id=${skuId}&_jt_page_size=500&__CALLBACKID=JTable1&__CALLBACKPARAM=${encodeURIComponent(callBackParamStr)}`
+                        erp321CooKie = " jt.pagesize=.FKFWY4._500; u_lastLoginType=ap; dkv=%7B%22pstorder_editor%22%3A%220%2C0%22%2C%22pstol_item%22%3A%220%2C0%22%7D; jt.pagesize=.FKFWY4._200; ckv=%7B%22setwarehouse_clearlc%22%3A%22default%22%2C%22warehouseScaleEnabled%22%3Afalse%7D; u_ssi=; u_drp=-1; jump_env=www; tmp_gray=1; jump_isgray=0; u_shop=-1; _gi=-302; _ati=8414220403918; j_d_3=7HNTBQKN7KIMT2HXFQ2CRDNZ2BTWLUZ4ROVLLRF7I3DXJWBMQRDIBRO7WXXXPL4LP2TOBUMQIT4EKDOTVJWIBZ7MHI; u_name=%e9%99%88%e7%8e%8b%e6%98%86; u_lid=18851191669; u_co_name=%e6%b8%a9%e5%b7%9e%e8%b4%b0%e9%9b%b6%e4%bc%8d%e8%b4%b8%e6%98%93%e6%9c%89%e9%99%90%e5%85%ac%e5%8f%b8; u_r=12%2c17%2c27%2c41%2c102%2c1002; u_id=19750842; u_co_id=10011834; u_env=www; 3AB9D23F7A4B3C9B=7HNTBQKN7KIMT2HXFQ2CRDNZ2BTWLUZ4ROVLLRF7I3DXJWBMQRDIBRO7WXXXPL4LP2TOBUMQIT4EKDOTVJWIBZ7MHI; u_json=%7b%22t%22%3a%222025-10-29+13%3a57%3a49%22%2c%22co_type%22%3a%22%e6%a0%87%e5%87%86%e5%95%86%e5%ae%b6%22%2c%22proxy%22%3anull%2c%22ug_id%22%3a%22%22%2c%22dbc%22%3a%221045%22%2c%22tt%22%3a%2237%22%2c%22apps%22%3a%221.4.150.152.168%22%2c%22pwd_valid%22%3a%220%22%2c%22ssi%22%3anull%2c%22sign%22%3a%224536127.6C49878D88AA4D42B6B3DC61203DDCFC%2c2f8b8f83b31f21e6c0e662af4eb82ae9%22%7d; v_d_144=1761717467880_fbafbc967d74fbdbff9f03352f725a69; u_cid=134061910693899917; u_sso_token=CS@096275146ee449fa91d0e68a14567375; p_50=ED62A8E3623E814178D22CB3DBF15F37638973430693906306%7c10011834; u_isTPWS=2; isLogin=false; acw_tc=1a0c66da17617337868395446e582b2d97ed553ba306193a1cb91641363521; tfstk=gNfmw2jXRtJfCFcjnPAbn3GTCd2RkIO6dGh9XCKaU3-SDmhA7fvN5FTwuNrfj1xygd6vXnKMsNs3ykFL9Z_X1BELvWUAAcj61hP9_8drOVYtIkFL9Zzj95RUvteRipY97C8qgjlzrELM_EJ23zxySeMZ0GRarzYBSEowuf7rUFLp_hSw_zbyVFAw7GRara-W7b8S_HfNN_r6JO-pPUlhWEvDYZ-PkZCyoDKFu3cZ_nYDn8Q2qflNZODmL3t4d4K6Mn_voGNIGIJGdNLGmScVjw15qUSUsXKVPwBphsPICpA2mdfVooVGr1xDLsJoSPQHGFSwITZn9EAAEpfchPiPuMKcLI_t-oQkKTvBzLui3IBdJ19FgSmB2pTGD3IUTbAyQg7qUv-GOfTzW_DsCK8WrHHPMHz1hO2fqz4od-92PEELrzDsCK8WrHUurvi63UTYv"
+                        sendHttpRequest('POST', 'https://www.erp321.com/app/item/SkuStock/SkuStock.aspx?_c=jst-epaas&am___=LoadDataToJSON', {
+                            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                            'Cookie': erp321CooKie
+                        }, params, (err, res) => {
+                            finishedCount++
+                            if (err) {
+                                console.error(err);
+                                return;
+                            }
+                            console.log(res)
+                            let resJsonStr = res.substring(2);
+                            let resJson = JSON.parse(resJsonStr);
+                            if (!resJson["IsSuccess"]) {
+
+                            }
+                            let dataJson = JSON.parse(resJson['ReturnValue']);
+                            dataJson['datas'].forEach(skuData => {
+                                // 可用库存 = 主仓库存 - 锁定库存 - 已下单库存 + 进货库存
+                                let stockNum = skuData['qty'] - skuData['lock_qty'] - skuData['order_lock'] + skuData['in_qty']
+                                skuStockMap.set(skuData['sku_id'], stockNum)
+                            })
+                            if (finishedCount === skuIds.length) {
+                                console.log("sku库存查询完成")
+                                resolve(skuStockMap)
+                            }
+                        })
+                    }
+                })
+
             }
         }
     }
@@ -409,10 +697,10 @@
     class ProductEditEnhance {
         constructor() {
             console.log('=====商品编辑增强=====')
-            this.init()
+            this.productCodePlugin()
         }
 
-        init() {
+        productCodePlugin() {
             const toolDiv = document.createElement('div')
             toolDiv.id = 'tool-div'
             toolDiv.style.width = '100%'
@@ -457,6 +745,7 @@
             }
 
             showModalBtn.addEventListener('click', () => {
+
                 showModalBtn.scrollIntoView({behavior: 'smooth', block: 'start'})
                 //处理是否完成标记
                 let isCompleted = false
@@ -534,7 +823,8 @@
                     })
                     //颜色划分
                     const eTableEles = document.querySelectorAll('div.ecom-g-table-container')
-                    let values = Object.values(eTableEles[0]);
+                     //有时候是第二个表格
+                    let values = Object.values(eTableEles[1]);
                     //必须取第一个元素
                     const fiberNode = values[0]
                     fiberNode.memoizedProps.children.props.children[1].props.data.forEach(item => {
@@ -585,3 +875,4 @@
     //==================商品编辑增强，自动填充商品编码 END=======/
 
 })()
+
