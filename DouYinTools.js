@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         抖店工具箱合并版
-// @version      3.0.0
+// @version      3.0.1
 // @description  抖店增强工具箱 网页功能增强
 // @author       xchen
 // @match        https://*.jinritemai.com/*
@@ -154,10 +154,12 @@
                         return
                     }
 
-                    // 设置超时
-                    timeoutId = setTimeout(() => {
-                        doReject(new Error(`等待元素超时: ${xpath}`))
-                    }, timeout)
+                    // 设置超时 - 只有当timeout不为-1时才设置超时
+                    if (timeout !== -1) {
+                        timeoutId = setTimeout(() => {
+                            doReject(new Error(`等待元素超时: ${xpath}`))
+                        }, timeout)
+                    }
                 }
 
                 const observeTarget = getObserveTarget()
@@ -172,10 +174,12 @@
                         }
                     }, 100)
 
-                    // 设置超时（等待 DOM 加载）
-                    timeoutId = setTimeout(() => {
-                        doReject(new Error(`等待元素超时: ${xpath} (DOM未加载)`))
-                    }, timeout)
+                    // 设置超时（等待 DOM 加载）- 只有当timeout不为-1时才设置超时
+                    if (timeout !== -1) {
+                        timeoutId = setTimeout(() => {
+                            doReject(new Error(`等待元素超时: ${xpath} (DOM未加载)`))
+                        }, timeout)
+                    }
                 } else {
                     startObserving(observeTarget)
                 }
@@ -1466,7 +1470,7 @@
             document.head.appendChild(style)
 
             //等待加载完成full-screen-card元素
-            Utils.waitForElementByXPath("//div[@id='full-screen-card']", 5000).then((element) => {
+            Utils.waitForElementByXPath("//div[@id='full-screen-card']", -1).then((element) => {
                 element.prepend(toolDiv)
             })
 
@@ -1482,7 +1486,6 @@
                 //必须取第一个元素
                 const fiberNode = values[0]
                 const tableRows = fiberNode.memoizedProps.children.props.children[1].props.data
-                console.log(tableRows)
 
                 //获取颜色数据
                 const skuColorEle = document.querySelector('#skuValue-颜色分类')
