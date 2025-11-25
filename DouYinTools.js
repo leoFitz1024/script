@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         抖店工具箱合并版
-// @version      3.0.1
+// @version      3.0.2
 // @description  抖店增强工具箱 网页功能增强
 // @author       xchen
 // @match        https://*.jinritemai.com/*
@@ -3395,50 +3395,36 @@
                     this.cookie = this.configManager.getGlobalConfig('juShuiTanCookie')
                 }
 
-                // 尝试从cookie中提取用户信息
-                const userInfoFromCookie = this.extractUserInfoFromCookie(this.cookie)
-                console.log('从cookie提取的用户信息:', userInfoFromCookie)
-
-                // 获取用户信息来验证登录状态
-                let uid = userInfoFromCookie.uId
-                let coid = userInfoFromCookie.uCoId
-
-                if (!this.cookie || !uid || !coid) {
-                    return { valid: false, message: '没有Cookie或用户ID或公司ID' }
+                if (!this.cookie) {
+                    return { valid: false, message: '没有Cookie' }
                 }
-
-                const requestData = {
-                    data: {},
-                    uid: parseInt(uid),
-                    coid: parseInt(coid)
+                const callBackParam = {
+                    "Method": "LoadDataToJSON",
+                    "Args": ["1", `[]`, "{}"]
                 }
+                const callBackParamStr = JSON.stringify(callBackParam)
+                const params = `__VIEWSTATE=%2FwEPDwUKMTkyMTExMDQ5NWRk9w9%2BBwzZIG166vk7VBNHl%2B9FDaU%3D&__VIEWSTATEGENERATOR=491FF2E7&sku_id=&_jt_page_size=15&__CALLBACKID=JTable1&__CALLBACKPARAM=${encodeURIComponent(callBackParamStr)}`
 
-                console.log('验证登录状态，请求数据:', requestData)
+                const res = await Utils.sendHttpRequest('POST', 'https://www.erp321.com/app/item/SkuStock/SkuStock.aspx?_c=jst-epaas&am___=LoadDataToJSON', {
+                    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                    'Cookie': this.cookie
+                }, params)
 
-                // 使用POST请求获取用户信息
-                const response = await Utils.sendHttpRequest('POST',
-                    `${this.baseURL}/erp/webapi/UserApi/Passport/GetUserInfo`,
-                    {
-                        'accept': 'application/json',
-                        'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6',
-                        'content-type': 'application/json;charset=UTF-8',
-                        'sec-ch-ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Microsoft Edge";v="138"',
-                        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0',
-                        'Cookie': this.cookie
-                    },
-                    requestData
-                )
-
-                console.log('验证登录状态API响应:', response)
-                const result = JSON.parse(response)
+                const resJsonStr = res.substring(2)
+                const resJson = JSON.parse(resJsonStr)
+                console.log('验证登录状态返回数据:', resJson)
+                if (!resJson["IsSuccess"]) {
+                    console.error('验证登录状态失败:', resJson)
+                    return { valid: false, message: '验证登录状态失败'}
+                }
+                const gotoLogin = resJson['GotoLogin']
 
                 // 根据返回的code判断登录状态
-                if (result.code === 0) {
-                    console.log('登录状态验证成功，用户信息:', result.data)
-                    return { valid: true, message: '登录状态正常', data: result.data }
+                if (!gotoLogin) {
+                    return { valid: true, message: '登录状态正常'}
                 } else {
-                    console.log('登录状态验证失败:', result.msg)
-                    return { valid: false, message: result.msg || '登录已失效' }
+                    console.log('Cookie已过期，需要重新登陆：', resJson)
+                    return { valid: false, message: '登录已失效' }
                 }
             } catch (error) {
                 console.error('验证登录状态失败:', error)
@@ -3597,7 +3583,7 @@
                             console.warn(`查询SKU ${skuId} 库存失败:`, resJson)
                             return
                         }
-
+                        console.log(`查询SKU ${skuId} 库存成功:`, resJson)
                         const dataJson = JSON.parse(resJson['ReturnValue'])
                         dataJson['datas'].forEach(skuData => {
                             // 计算可用库存：总库存 - 锁定库存 - 运营云仓库存 - 订单锁定 + 在途库存
