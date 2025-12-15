@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         抖店工具箱合并版
-// @version      3.0.2
+// @name         抖店工具箱合并版-3.0.3
+// @version      3.0.3
 // @description  抖店增强工具箱 网页功能增强
 // @author       xchen
 // @match        https://*.jinritemai.com/*
@@ -1481,8 +1481,19 @@
 
                 // 表格sku行数据
                 const eTableEles = document.querySelectorAll('div.ecom-g-table-container')
+                let targetTable = null
+                eTableEles.forEach(eTableEle => {
+                    // 元素内包含“颜色分类”关键字
+                    if (eTableEle.innerHTML.includes('颜色分类')) {
+                        targetTable = eTableEle
+                    }
+                })
+                if (!targetTable) {
+                    console.log('未找到目标表格')
+                    return
+                }
                 //有时候是第二个表格
-                let values = Object.values(eTableEles[1]);
+                let values = Object.values(targetTable);
                 //必须取第一个元素
                 const fiberNode = values[0]
                 const tableRows = fiberNode.memoizedProps.children.props.children[1].props.data
@@ -2906,8 +2917,7 @@
                 const feishuDocId = ConfigManager.getInstance().getModuleConfig('shopRankModule', 'feishuDocId')
                 const feishuSheetId = ConfigManager.getInstance().getModuleConfig('shopRankModule', 'feishuSheetId')
                 if (!feishuDocId || feishuDocId.trim() === '' || !feishuSheetId || feishuSheetId.trim() === '') {
-                    UI.showMessage('error', '请先配置飞书文档ID和工作表ID')
-                    return
+                    throw new Error('请先配置飞书文档ID和工作表ID')
                 }
 
                 // 1. 读取第一行(表头)数据,确定日期列
@@ -2917,8 +2927,7 @@
                     dateTimeRenderOption: 'FormattedString'
                 });
                 if (!headerData || headerData.length === 0) {
-                    UI.showMessage('error', '读取表头数据失败')
-                    return
+                    throw new Error('读取表头数据失败')
                 }
 
                 const headerRow = headerData[0];
@@ -2948,8 +2957,7 @@
                 const shopNameRange = `${feishuSheetId}!A2:A100`; // 从第2行开始读取,假设不超过1000行
                 const shopNameData = await FeishuAPI.readRange(feishuDocId, shopNameRange);
                 if (!shopNameData || shopNameData.length === 0) {
-                    UI.showMessage('error', '读取店铺名称列失败')
-                    return
+                    throw new Error('读取店铺名称列失败')
                 }
 
                 // 结果数据转成map
@@ -2977,6 +2985,8 @@
                 syncOnlineExcelBtn.innerText = '更新在线表格'
                 UI.showMessage('success', '更新数据成功')
             } catch (error) {
+                syncOnlineExcelBtn.disabled = false
+                syncOnlineExcelBtn.innerText = '更新在线表格'
                 console.error(`写入数据时出错: }`, error)
                 UI.showMessage('error', `写入数据时出错: ${error.message}`)
             }
