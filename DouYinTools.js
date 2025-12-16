@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         抖店工具箱合并版-3.0.3
-// @version      3.0.3
+// @name         抖店工具箱合并版-3.0.4
+// @version      3.0.4
 // @description  抖店增强工具箱 网页功能增强
 // @author       xchen
 // @match        https://*.jinritemai.com/*
@@ -1348,9 +1348,9 @@
         setupStockEditPlugin() {
             Utils.waitForElementByXPath('//tbody[contains(@class, "ecom-g-table-tbody")]', 5000).then((element) => {
                 element.addEventListener('click', (event) => {
-                    const clickInventory = event.target.closest('.ecom-g-table-cell.style_totalInventory__ITuCz a');
+                    const clickInventory = event.target.closest('.ecom-g-table-cell[class*="style_totalInventory__"] a');
                     if (clickInventory) {
-                        Utils.waitForElementByXPath("//div[@class='index_filterBox__xQbII']", 5000).then((filterBox) => {
+                        Utils.waitForElementByXPath("//div[contains(@class,'index_filterBox__')]", 5000).then((filterBox) => {
                             let syncBtn = Object.assign(document.createElement('button'), {
                                 innerText: '同步现货库存',
                                 style: 'border-radius:8px;background-color:#1966ff;color:white;padding:3px 10px;border:none;cursor:pointer;position:absolute;right:0px;'
