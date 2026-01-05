@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         抖店工具箱合并版-3.0.4
-// @version      3.0.4
+// @name         抖店工具箱合并版-3.0.5
+// @version      3.0.5
 // @description  抖店增强工具箱 网页功能增强
 // @author       xchen
 // @match        https://*.jinritemai.com/*
@@ -8,6 +8,7 @@
 // @updateURL    https://cdn.jsdmirror.com/gh/leoFitz1024/script@latest/DouYinTools.js
 // @downloadURL  https://cdn.jsdmirror.com/gh/leoFitz1024/script@latest/DouYinTools.js
 // @connect      www.erp321.com
+// @connect      api.erp321.com
 // @connect      open.feishu.cn
 // @grant        GM_registerMenuCommand
 // @grant        GM_setValue
@@ -63,7 +64,8 @@
                         }
                     },
                     onerror: function (error) {
-                        UI.showMessage('error', `Request error: ${error}`)
+                        console.log(error)
+                        UI.showMessage('error', `Request error: ${error.error}`)
                         reject(new Error(`Request error: ${error}`))
                     }
                 })
@@ -1384,6 +1386,7 @@
                 const stockMap = await JuShuiTanTool.getInstance().getProductInventory(Array.from(skuIds))
                 if (!stockMap || stockMap.size === 0) {
                     console.error('获取到的库存数据为空')
+                    UI.showMessage('error', `获取到的库存数据为空`)
                     return
                 }
                 dataList.forEach(datum => {
@@ -3413,13 +3416,12 @@
                     "Args": ["1", `[]`, "{}"]
                 }
                 const callBackParamStr = JSON.stringify(callBackParam)
-                const params = `__VIEWSTATE=%2FwEPDwUKMTkyMTExMDQ5NWRk9w9%2BBwzZIG166vk7VBNHl%2B9FDaU%3D&__VIEWSTATEGENERATOR=491FF2E7&sku_id=&_jt_page_size=15&__CALLBACKID=JTable1&__CALLBACKPARAM=${encodeURIComponent(callBackParamStr)}`
+                const params = `__VIEWSTATE=%2FwEPDwUKLTYxMzg5NTU3MWRkpa9oWac5nJUlZdTmtux9W%2F7UGS8%3D&__VIEWSTATEGENERATOR=491FF2E7&sku_id=&_jt_page_size=15&__CALLBACKID=JTable1&__CALLBACKPARAM=${encodeURIComponent(callBackParamStr)}`
 
                 const res = await Utils.sendHttpRequest('POST', 'https://www.erp321.com/app/item/SkuStock/SkuStock.aspx?_c=jst-epaas&am___=LoadDataToJSON', {
                     'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
                     'Cookie': this.cookie
                 }, params)
-
                 const resJsonStr = res.substring(2)
                 const resJson = JSON.parse(resJsonStr)
                 console.log('验证登录状态返回数据:', resJson)
@@ -3577,7 +3579,7 @@
                     "Args": ["1", `[{"k":"sku_id","v":"${skuId}","c":"like"}]`, "{}"]
                 }
                 const callBackParamStr = JSON.stringify(callBackParam)
-                const params = `__VIEWSTATE=%2FwEPDwUKMTkyMTExMDQ5NWRk9w9%2BBwzZIG166vk7VBNHl%2B9FDaU%3D&__VIEWSTATEGENERATOR=491FF2E7&sku_id=${skuId}&_jt_page_size=500&__CALLBACKID=JTable1&__CALLBACKPARAM=${encodeURIComponent(callBackParamStr)}`
+                const params = `__VIEWSTATE=%2FwEPDwUKLTYxMzg5NTU3MWRkpa9oWac5nJUlZdTmtux9W%2F7UGS8%3D&__VIEWSTATEGENERATOR=491FF2E7&sku_id=${skuId}&_jt_page_size=500&__CALLBACKID=JTable1&__CALLBACKPARAM=${encodeURIComponent(callBackParamStr)}`
 
                 try {
                     const res = await Utils.sendHttpRequest('POST', 'https://www.erp321.com/app/item/SkuStock/SkuStock.aspx?_c=jst-epaas&am___=LoadDataToJSON', {
