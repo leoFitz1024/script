@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         抖店工具箱合并版-3.0.6
-// @version      3.0.6
+// @name         抖店工具箱合并版-3.0.7
+// @version      3.0.7
 // @description  抖店增强工具箱 网页功能增强
 // @author       xchen
 // @match        https://*.jinritemai.com/*
@@ -502,7 +502,7 @@
             popup.style.padding = '15px'
             popup.style.borderRadius = '5px'
             popup.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)'
-            popup.style.zIndex = '10000'
+            popup.style.zIndex = '9999999999'
             popup.innerText = message
 
             document.body.appendChild(popup)
@@ -1337,6 +1337,7 @@
             this.requestListenerManager = requestListenerManager
             this.listeners = []
             this.replaceAbortFlag = false
+            this.replaceTitleErrorList = []
         }
 
         init() {
@@ -1507,7 +1508,7 @@
             modalContent.style.cssText = `
                 background: white;
                 border-radius: 8px;
-                width: 400px;
+                width: 500px;
                 max-width: 90%;
                 box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
                 text-align: center;
@@ -1530,18 +1531,53 @@
                         <h3 style="margin: 0 0 10px; font-size: 18px; font-weight: 600; color: #111827;">正在批量替换标题</h3>
                         <p style="margin: 0; font-size: 14px; color: #6b7280;">正在替换商品标题中的关键词，请稍候...</p>
                     </div>
+                    <!-- 结果展示区域 -->
+                    <div id="replace-results" style="margin-bottom: 20px; padding: 16px; background-color: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb; display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <h4 style="margin: 0; font-size: 16px; font-weight: 600; color: #111827;">替换结果</h4>
+                            <button id="copy-fail-ids-btn" 
+                                    style="padding: 6px 12px; 
+                                           background-color: #3b82f6; 
+                                           color: white; 
+                                           border: 1px solid #3b82f6; 
+                                           border-radius: 4px; 
+                                           font-size: 12px; 
+                                           font-weight: 500; 
+                                           cursor: pointer; 
+                                           transition: all 0.2s; 
+                                           display: inline-block;">
+                                一键复制ID
+                            </button>
+                        </div>
+                        <div id="fail-list" style="max-height: 200px; overflow-y: auto; font-size: 14px; color: #4b5563;">
+                            <!-- 失败商品列表将在这里动态生成 -->
+                        </div>
+                    </div>
                     <div style="display: flex; justify-content: center; gap: 12px;">
                         <button id="abort-replace-btn" 
-                                style="padding: 10px 24px;
+                                style="padding: 6px 12px; 
                                        background-color: #dc2626;
                                        color: white;
                                        border: 1px solid #dc2626;
-                                       border-radius: 6px;
-                                       font-size: 14px;
+                                       border-radius: 4px;
+                                       font-size: 12px;
                                        font-weight: 500;
                                        cursor: pointer;
                                        transition: all 0.2s;">
                             中止替换
+                        </button>
+                        <button id="close-replace-btn" 
+                                style="padding: 6px 12px; 
+                                       background-color: #3b82f6;
+                                       color: white;
+                                       border: 1px solid #3b82f6;
+                                       border-radius: 4px;
+                                       font-size: 12px;
+                                       font-weight: 500;
+                                       cursor: pointer;
+                                       display: none;
+                                       transition: all 0.2s;">
+                            关闭弹窗
                         </button>
                     </div>
                 </div>
@@ -1572,12 +1608,43 @@
                 overlay.remove();
 
                 // 显示中止提示
-                UI.showMessage('info', '批量替换已中止');
+                UI.showMessage('success', '批量替换已中止');
             };
 
             // 绑定事件
             abortBtn.addEventListener('click', handleAbort);
 
+            // 获取结果区域元素
+            const resultsDiv = modalContent.querySelector('#replace-results');
+            const failListDiv = modalContent.querySelector('#fail-list');
+            const copyBtn = modalContent.querySelector('#copy-fail-ids-btn');
+            const closeBtn = modalContent.querySelector('#close-replace-btn');
+            const loadingDiv = modalContent.querySelector('div[style*="animation: spin"]');
+            const titleH3 = modalContent.querySelector('h3');
+            const subtitleP = modalContent.querySelector('p');
+            
+            // 复制按钮点击事件处理
+            const handleCopyIds = () => {
+                if (this.replaceTitleErrorList.length > 0) {
+                    // 提取商品ID并以逗号拼接
+                    const ids = this.replaceTitleErrorList.map(item => item.product_id).join(',');
+                    
+                    // 复制到剪贴板
+                    navigator.clipboard.writeText(ids).then(() => {
+                        // 显示复制成功提示
+                        UI.showMessage('success', '失败商品ID已复制到剪贴板');
+                    }).catch(err => {
+                        console.error('复制失败:', err);
+                        UI.showMessage('error', '复制失败，请重试');
+                    });
+                }
+            };
+            
+            // 绑定复制按钮事件
+            copyBtn.addEventListener('click', handleCopyIds);
+            closeBtn.addEventListener('click', () => {
+                overlay.remove();
+            });
             // 暴露关闭方法和中止处理
             return {
                 close: () => {
@@ -1585,6 +1652,44 @@
                 },
                 onAbort: (handler) => {
                     this.onAbortReplace = handler;
+                },
+                updateResults: (failedItems) => {
+                    // 清空现有列表
+                    failListDiv.innerHTML = '';
+                    
+                    if (failedItems && failedItems.length > 0) {
+                        // 创建失败商品列表
+                        failedItems.forEach(item => {
+                            const failItem = document.createElement('div');
+                            failItem.style.cssText = `
+                                padding: 8px;
+                                margin-bottom: 8px;
+                                background-color: #fee2e2;
+                                border-radius: 4px;
+                                border-left: 4px solid #ef4444;
+                            `;
+                            failItem.innerHTML = `
+                                <div style="font-weight: 500; color: #dc2626;">商品ID: ${item.product_id}</div>
+                                <div style="font-size: 12px; color: #7f1d1d;">错误: ${item.msg}</div>
+                            `;
+                            failListDiv.appendChild(failItem);
+                        });
+                        
+                        // 显示结果区域
+                        resultsDiv.style.display = 'block';
+                    }
+                },
+                showResults: () => {
+                    // 隐藏加载动画
+                    if (loadingDiv) {
+                        loadingDiv.style.display = 'none';
+                    }
+                    //隐藏abort-replace-btn
+                    abortBtn.style.display = 'none';
+                    closeBtn.style.display = 'block';
+                    // 更新标题
+                    titleH3.textContent = '批量替换完成';
+                    subtitleP.textContent = '商品标题替换操作已完成';
                 }
             };
         }
@@ -1647,19 +1752,44 @@
                 // 支持查询按钮内嵌在 span 中的情况
                 const queryBtn = Utils.getElementByXpath("//button[contains(@class,'ecom-g-btn')][.//text()[contains(.,'查询')]]", searchFormContainer)
                 queryBtn.click()
-                document.querySelector('span.ecom-g-sp-icon[data-kora="修改标题"]')?.click();
-                const confirmBtn = await Utils.waitForElementByXPath("//div[contains(@class,'ecom-g-modal-content')]//button[contains(@class,'ecom-g-btn')][.//text()[contains(.,'确定')]]", 5000)
-                confirmBtn.click()
-                const requestOptions = await this.getEditRequestOptions()
-                this.requestListenerManager.removeListener(requestOptions.listenerId)
-                await this.doBatchReplaceTitle(requestOptions, keyword, content, 0, replaceingDialog)
+                
+                setTimeout(async () => {
+                    document.querySelector('span.ecom-g-sp-icon[data-kora="修改标题"]')?.click();
+                    try {
+                        const confirmBtn = await Utils.waitForElementByXPath("//div[contains(@class,'ecom-g-modal-content')]//button[contains(@class,'ecom-g-btn')][.//text()[contains(.,'确定')]]", 2000)
+                        confirmBtn.click()
+                    } catch (error) {
+                        if (this.productTitles.size === 0) {
+                            UI.showMessage('info', '没有需要更新的商品~')
+                            replaceingDialog.close()
+                            this.replaceAbortFlag = false
+                            return
+                        }else{
+                            console.error('点击确定按钮失败:', error)
+                            UI.showMessage('error', '更新失败:' + error)
+                            // 解析失败，reject Promise
+                            replaceingDialog.close()
+                            this.replaceAbortFlag = false
+                            return
+                        }
+                    }
+                    const requestOptions = await this.getEditRequestOptions()
+                    //获取ecom-g-modal-content下的取消按钮，如果存在 则点击
+                    setTimeout(() => {
+                        const abortBtn = Utils.getElementByXpath("//div[contains(@class,'ecom-g-modal-content')]//button[contains(@class,'ecom-g-btn')][.//text()[contains(.,'取消')]]")
+                        if (abortBtn) {
+                            abortBtn.click()
+                        }
+                    }, 1000)
+                    this.requestListenerManager.removeListener(requestOptions.listenerId)
+                    await this.doBatchReplaceTitle(requestOptions, keyword, content, 0, replaceingDialog)
+                }, 1000)
             } catch (error) {
                 console.error('批量替换标题失败:', error)
                 UI.showMessage('error', '批量替换标题失败:' + error)
                 // 解析失败，reject Promise
                 replaceingDialog.close()
                 this.replaceAbortFlag = false
-                reject(error)
             }
         }
 
@@ -1669,6 +1799,12 @@
                 interval: 300,
                 timeout: 10000,
             })
+            if (this.productTitles.size === 0) {
+                UI.showMessage('info', '没有商品标题需要替换')
+                replaceingDialog.close()
+                this.replaceAbortFlag = false
+                return
+            }
             lastProductUpdateTime = this.productUpdateTime
             // 构造批量请求参数
             const batchParams = {
@@ -1689,6 +1825,14 @@
                     suffix: '',
                 }
             })
+            // 发送批量请求
+            const response = await Utils.sendHttpRequest(requestOptions.method, requestOptions.url, {}, batchParams)
+            console.log('批量替换标题响应:', JSON.parse(response))
+            //{"errno":0,"st":0,"msg":"","code":0,"data":[{"product_id":"3779529074049941966","code":0,"msg":"success"},{"product_id":"3779184675898130828","code":110250135,"msg":"尺码表与sku规格尺码不一致，请进入商品编辑页优化尺码表信息"},{"product_id":"3739669748389118263","code":110250135,"msg":"尺码表与sku规格尺码不一致，请进入商品编辑页优化尺码表信息"}],"page":0,"total":0,"size":0}
+            //提取response中错误信息
+            const errorList = JSON.parse(response).data.filter(item => item.code !== 0)
+            this.replaceTitleErrorList.push(...errorList)
+
             // 点击class=ecom-g-pagination-next的下一页 直到按钮出现 ecom-g-pagination-disabled
             const nextPageBtn = document.querySelector('li.ecom-g-pagination-next:not(.ecom-g-pagination-disabled)')
             if (nextPageBtn) {
@@ -1696,9 +1840,6 @@
                     this.replaceAbortFlag = false
                     return
                 } else {
-                    // 发送批量请求
-                    const response = await Utils.sendHttpRequest(requestOptions.method, requestOptions.url, {}, batchParams)
-                    console.log('批量替换标题响应:', response)
                     nextPageBtn.click()
                     // 等待下一页加载完成
                     setTimeout(() => {
@@ -1706,10 +1847,16 @@
                     }, 1000)
                 }
             }else{
-                // 点击确定按钮
-                replaceingDialog.close()
+                if (this.replaceTitleErrorList.length > 0) {
+                    replaceingDialog.updateResults(this.replaceTitleErrorList)
+                    replaceingDialog.showResults()
+                    // 显示错误信息
+                    UI.showMessage('error', '批量替换标题存在失败商品，请查看')
+                }else{
+                    // 显示成功信息
+                    UI.showMessage('success', '批量替换标题完成')
+                }
                 this.replaceAbortFlag = false
-                UI.showMessage('success', '批量替换标题完成')
             }
 
         }
