@@ -1376,20 +1376,35 @@
             const replaceTitleBtn = document.createElement('button')
             replaceTitleBtn.textContent = '批量改标题'
             replaceTitleBtn.style.fontSize = '12px'
-            replaceTitleBtn.style.marginLeft = '10px'
-            replaceTitleBtn.style.padding = '5px 10px'
-            replaceTitleBtn.style.backgroundColor = '#1966ff'
-            replaceTitleBtn.style.color = '#fff'
-            replaceTitleBtn.style.border = 'none'
+            replaceTitleBtn.style.marginLeft = '8px'
+            replaceTitleBtn.style.lineHeight = '14px'
+            replaceTitleBtn.style.padding = '6px 12px'
+            replaceTitleBtn.style.backgroundColor = '#ffff'
+            replaceTitleBtn.style.color = '#252931'
+            replaceTitleBtn.style.border = '1px solid #dcdee1'
             replaceTitleBtn.style.borderRadius = '4px'
             replaceTitleBtn.style.cursor = 'pointer'
+            replaceTitleBtn.style.verticalAlign = 'middle'
+            //设置hover样式
+            replaceTitleBtn.style.transition = 'all 0.3s ease'
+            replaceTitleBtn.addEventListener('mouseenter', () => {
+                replaceTitleBtn.style.backgroundColor = '#fff'
+                replaceTitleBtn.style.borderColor = '#4784ff'
+                replaceTitleBtn.style.color = '#4784ff'
+            })
+            replaceTitleBtn.addEventListener('mouseleave', () => {
+                replaceTitleBtn.style.backgroundColor = '#ffff'
+                replaceTitleBtn.style.borderColor = '#dcdee1'
+                replaceTitleBtn.style.color = '#252931'
+            })
+
             replaceTitleBtn.addEventListener('click', () => {
                 this.showReplaceTitleDialog()
             })
             // 定位class以style_rightButtonGroup__ xpath定位开头元素 插入按钮
             Utils.waitForElementByXPath('//*[starts-with(@class,"style_rightButtonGroup__")]', 5000).then((rightButtonGroup) => {
                 if (rightButtonGroup) {
-                    rightButtonGroup.appendChild(replaceTitleBtn)
+                    rightButtonGroup.prepend(replaceTitleBtn)
                 }
             })
         }
