@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         抖店工具箱合并版-3.0.5
-// @version      3.0.5
+// @name         抖店工具箱合并版-3.0.6
+// @version      3.0.6
 // @description  抖店增强工具箱 网页功能增强
 // @author       xchen
 // @match        https://*.jinritemai.com/*
@@ -10,6 +10,7 @@
 // @connect      www.erp321.com
 // @connect      api.erp321.com
 // @connect      open.feishu.cn
+// @connect      fxg.jinritemai.com
 // @grant        GM_registerMenuCommand
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -75,10 +76,10 @@
         /**
          * 等待元素出现
          */
-        waitForElementByXPath(xpath, timeout = 10000) {
+        waitForElementByXPath(xpath, timeout = 10000, context = document) {
             return new Promise((resolve, reject) => {
-                const element = document.evaluate(
-                    xpath, document, null,
+                const element = context.evaluate(
+                    xpath, context, null,
                     XPathResult.FIRST_ORDERED_NODE_TYPE, null
                 ).singleNodeValue
 
@@ -186,6 +187,47 @@
                     startObserving(observeTarget)
                 }
             })
+        },
+
+        /**
+        * 等待条件满足
+        * @param conditionFn 条件函数，返回true时表示条件满足
+        * @param options 配置项
+        * @returns {Promise} 当条件满足时解析，超时或被拒绝时拒绝
+        */
+        waitFor(conditionFn, {
+            interval = 300,   // 每次检查间隔(ms)
+            timeout = 10000   // 超时时间(ms)
+        } = {}) {
+            return new Promise((resolve, reject) => {
+                const start = Date.now();
+
+                const timer = setInterval(() => {
+                    if (conditionFn()) {
+                        clearInterval(timer);
+                        resolve(true);
+                    } else if (Date.now() - start > timeout) {
+                        clearInterval(timer);
+                        reject(new Error('等待超时'));
+                    }
+                }, interval);
+            });
+        },
+
+        /**
+        * @param inputDom 输入框DOM 比如：document.getElementById('userId')
+        * @newText 新的文本
+        */
+        changeReactInputValue(inputDom, newText) {
+            let lastValue = inputDom.value;
+            inputDom.value = newText;
+            let event = new Event('input', { bubbles: true });
+            event.simulated = true;
+            let tracker = inputDom._valueTracker;
+            if (tracker) {
+                tracker.setValue(lastValue);
+            }
+            inputDom.dispatchEvent(event);
         },
 
         /**
@@ -315,6 +357,55 @@
                 restart,
                 element: () => element,
                 isObserving: () => isObserving
+            }
+        },
+
+        /**
+        * 通过XPath查找单个元素
+        * @param {string} xpath - XPath表达式
+        * @param {Element} [context=document] - 查找上下文，默认为整个文档
+        * @returns {Element|null} - 找到的元素或null
+        */
+        getElementByXpath(xpath, context = document) {
+            try {
+                const result = document.evaluate(
+                    xpath,
+                    context,
+                    null,
+                    XPathResult.FIRST_ORDERED_NODE_TYPE,
+                    null
+                );
+                return result.singleNodeValue;
+            } catch (error) {
+                console.error(`XPath查询错误: ${xpath}`, error);
+                return null;
+            }
+        },
+
+        /**
+         * 通过XPath查找多个元素
+         * @param {string} xpath - XPath表达式
+         * @param {Element} [context=document] - 查找上下文
+         * @returns {Element[]} - 找到的元素数组
+         */
+        getElementsByXpath(xpath, context = document) {
+            try {
+                const result = document.evaluate(
+                    xpath,
+                    context,
+                    null,
+                    XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+                    null
+                );
+
+                const elements = [];
+                for (let i = 0; i < result.snapshotLength; i++) {
+                    elements.push(result.snapshotItem(i));
+                }
+                return elements;
+            } catch (error) {
+                console.error(`XPath查询错误: ${xpath}`, error);
+                return [];
             }
         },
 
@@ -1170,6 +1261,7 @@
                 if (urlRegex.test(url)) {
                     try {
                         callback(url, responseText, {
+                            listenerId: id,
                             method: xhr._method,
                             url,
                             status: xhr.status,
@@ -1213,8 +1305,9 @@
                     response.clone().text().then(text => {
                         try {
                             callback(url, text, {
-                                method: "GET",
-                                url,
+                                listenerId: id,
+                                method: response.request.method,
+                                url: response.url,
                                 status: response.status,
                                 response
                             });
@@ -1238,15 +1331,20 @@
         static moduleId = 'productListModule'
 
         constructor(requestListenerManager) {
+            this.productUpdateTime = 0
             this.productMap = new Map()
+            this.productTitles = new Map()
             this.requestListenerManager = requestListenerManager
             this.listeners = []
+            this.replaceAbortFlag = false
         }
 
         init() {
             this.setupRequestListeners()
+            this.createShowReplaceTitleDialogBtn()
             this.createMonitor()
             this.setupStockEditPlugin()
+
         }
 
         destroy() {
@@ -1267,14 +1365,363 @@
 
             // 清理数据
             this.productMap.clear()
+            this.productTitles.clear()
 
             console.log('商品列表增强模块已销毁')
         }
+
+        /* ================= 插件：批量替换标题名称中关键词 ========================== */
+        createShowReplaceTitleDialogBtn() {
+            const replaceTitleBtn = document.createElement('button')
+            replaceTitleBtn.textContent = '批量改标题'
+            replaceTitleBtn.style.fontSize = '12px'
+            replaceTitleBtn.style.marginLeft = '10px'
+            replaceTitleBtn.style.padding = '5px 10px'
+            replaceTitleBtn.style.backgroundColor = '#1966ff'
+            replaceTitleBtn.style.color = '#fff'
+            replaceTitleBtn.style.border = 'none'
+            replaceTitleBtn.style.borderRadius = '4px'
+            replaceTitleBtn.style.cursor = 'pointer'
+            replaceTitleBtn.addEventListener('click', () => {
+                this.showReplaceTitleDialog()
+            })
+            // 定位class以style_rightButtonGroup__ xpath定位开头元素 插入按钮
+            Utils.waitForElementByXPath('//*[starts-with(@class,"style_rightButtonGroup__")]', 5000).then((rightButtonGroup) => {
+                if (rightButtonGroup) {
+                    rightButtonGroup.appendChild(replaceTitleBtn)
+                }
+            })
+        }
+        // 显示批量替换标题名称中关键词对话框
+        showReplaceTitleDialog() {
+            // 创建模态框覆盖层
+            const overlay = document.createElement('div');
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.5);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 100000;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            `;
+
+            // 创建模态框内容
+            const modalContent = document.createElement('div');
+            modalContent.style.cssText = `
+                background: white;
+                border-radius: 8px;
+                width: 500px;
+                max-width: 90%;
+                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            `;
+
+            // 模态框HTML结构
+            modalContent.innerHTML = `
+                <div style="padding: 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+                    <h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #111827;">批量替换标题关键词</h2>
+                    <button id="replace-title-close" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #6b7280; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 4px;">&times;</button>
+                </div>
+                <div style="padding: 20px;">
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #374151;">替换关键词</label>
+                        <input 
+                            type="text" 
+                            id="replace-keyword" 
+                            placeholder="请输入要替换的关键词" 
+                            style="width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; box-sizing: border-box;"
+                        >
+                    </div>
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #374151;">替换内容</label>
+                        <input 
+                            type="text" 
+                            id="replace-content" 
+                            placeholder="请输入替换后的内容" 
+                            style="width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; box-sizing: border-box;"
+                        >
+                    </div>
+                </div>
+                <div style="padding: 20px; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 8px;">
+                    <button id="replace-title-cancel" style="padding: 8px 16px; background-color: #f3f4f6; color: #374151; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.2s;">取消</button>
+                    <button id="replace-title-submit" style="padding: 8px 16px; background-color: #3b82f6; color: white; border: 1px solid #3b82f6; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.2s;">批量替换</button>
+                </div>
+            `;
+
+            // 组装模态框
+            overlay.appendChild(modalContent);
+            document.body.appendChild(overlay);
+
+            // 关闭按钮事件
+            document.getElementById('replace-title-close').addEventListener('click', () => {
+                overlay.remove();
+            });
+
+            // 取消按钮事件
+            document.getElementById('replace-title-cancel').addEventListener('click', () => {
+                overlay.remove();
+            });
+
+            // 批量替换按钮事件
+            document.getElementById('replace-title-submit').addEventListener('click', () => {
+                const keyword = document.getElementById('replace-keyword').value;
+                const content = document.getElementById('replace-content').value;
+
+                if (!keyword) {
+                    UI.showMessage('error', '请输入替换关键词');
+                    return;
+                }
+                if (!content) {
+                    UI.showMessage('error', '请输入替换内容');
+                    return;
+                }
+                // 关闭模态框
+                this.doReplaceTitle(keyword, content, overlay)
+            });
+        }
+
+        //显示正在替换模态框，提供中止按钮
+        showReplaceingDialog() {
+            // 创建半透明遮罩层
+            const overlay = document.createElement('div');
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.6);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 100001;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            `;
+
+            // 创建模态框内容
+            const modalContent = document.createElement('div');
+            modalContent.style.cssText = `
+                background: white;
+                border-radius: 8px;
+                width: 400px;
+                max-width: 90%;
+                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+                text-align: center;
+            `;
+
+            // 模态框HTML结构
+            modalContent.innerHTML = `
+                <div style="padding: 30px;">
+                    <div style="margin-bottom: 20px;">
+                        <!-- 加载动画 -->
+                        <div style="width: 50px;
+                                  height: 50px;
+                                  border: 4px solid #f3f3f3;
+                                  border-top: 4px solid #3498db;
+                                  border-radius: 50%;
+                                  margin: 0 auto 20px;
+                                  animation: spin 1s linear infinite;
+                                  box-sizing: border-box;">
+                        </div>
+                        <h3 style="margin: 0 0 10px; font-size: 18px; font-weight: 600; color: #111827;">正在批量替换标题</h3>
+                        <p style="margin: 0; font-size: 14px; color: #6b7280;">正在替换商品标题中的关键词，请稍候...</p>
+                    </div>
+                    <div style="display: flex; justify-content: center; gap: 12px;">
+                        <button id="abort-replace-btn" 
+                                style="padding: 10px 24px;
+                                       background-color: #dc2626;
+                                       color: white;
+                                       border: 1px solid #dc2626;
+                                       border-radius: 6px;
+                                       font-size: 14px;
+                                       font-weight: 500;
+                                       cursor: pointer;
+                                       transition: all 0.2s;">
+                            中止替换
+                        </button>
+                    </div>
+                </div>
+                <style>
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                </style>
+            `;
+
+            // 组装模态框
+            overlay.appendChild(modalContent);
+            document.body.appendChild(overlay);
+
+            // 中止按钮事件处理
+            const abortBtn = document.getElementById('abort-replace-btn');
+            let abortHandler;
+
+            // 创建中止事件处理函数
+            const handleAbort = () => {
+                // 触发中止替换事件
+                if (this.onAbortReplace) {
+                    this.onAbortReplace();
+                }
+                this.replaceAbortFlag = true
+                // 关闭模态框
+                overlay.remove();
+
+                // 显示中止提示
+                UI.showMessage('info', '批量替换已中止');
+            };
+
+            // 绑定事件
+            abortBtn.addEventListener('click', handleAbort);
+
+            // 暴露关闭方法和中止处理
+            return {
+                close: () => {
+                    overlay.remove();
+                },
+                onAbort: (handler) => {
+                    this.onAbortReplace = handler;
+                }
+            };
+        }
+
+        getEditRequestOptions() {
+            // 返回一个Promise实现异步返回
+            return new Promise((resolve, reject) => {
+                // 监听商品列表请求
+                this.requestListenerManager.addListener('productEdit', /\/product\/tproduct\/batchEdit\?/, (url, responseText, requestOptions) => {
+                    setTimeout(() => {
+                        try {
+                            //从 requestOptions 中获取 请求参数
+                            const requestParams = new URLSearchParams(requestOptions.url.split('?')[1])
+                            //提取appid __token _bid _lid verifyFp fp msToken a_bogus
+                            const appid = requestParams.get('appid')
+                            const token = requestParams.get('__token')
+                            const bid = requestParams.get('_bid')
+                            const lid = requestParams.get('_lid')
+                            const verifyFp = requestParams.get('verifyFp')
+                            const fp = requestParams.get('fp')
+                            const msToken = requestParams.get('msToken')
+                            const a_bogus = requestParams.get('a_bogus')
+
+                            // 解析成功，resolve Promise
+                            resolve({
+                                listenerId: requestOptions.listenerId,
+                                method: requestOptions.method,
+                                url: requestOptions.url,
+                                params: {
+                                    appid,
+                                    token,
+                                    bid,
+                                    lid,
+                                    verifyFp,
+                                    fp,
+                                    msToken,
+                                    a_bogus,
+                                }
+                            })
+                        } catch (error) {
+                            console.error('解析编辑商品请求参数失败:', error)
+                            // 解析失败，reject Promise
+                            reject(error)
+                        }
+                    }, 500)
+                })
+            })
+        }
+
+        // 执行批量替换标题
+        async doReplaceTitle(keyword, content, dialog) {
+            dialog.remove()
+            const replaceingDialog = this.showReplaceingDialog()
+            try {
+                const input = document.querySelector('#search-form-container input[placeholder*="输入商品名称/商品ID/商家编码"]')
+                //找到id=search-form-container下第一个form元素
+                Utils.changeReactInputValue(input, keyword)
+                //点击clss包含ecom-g-btn且内部有文字 查询 的按钮
+                const searchFormContainer = document.getElementById('search-form-container')
+                // 支持查询按钮内嵌在 span 中的情况
+                const queryBtn = Utils.getElementByXpath("//button[contains(@class,'ecom-g-btn')][.//text()[contains(.,'查询')]]", searchFormContainer)
+                queryBtn.click()
+                document.querySelector('span.ecom-g-sp-icon[data-kora="修改标题"]')?.click();
+                const confirmBtn = await Utils.waitForElementByXPath("//div[contains(@class,'ecom-g-modal-content')]//button[contains(@class,'ecom-g-btn')][.//text()[contains(.,'确定')]]", 5000)
+                confirmBtn.click()
+                const requestOptions = await this.getEditRequestOptions()
+                this.requestListenerManager.removeListener(requestOptions.listenerId)
+                await this.doBatchReplaceTitle(requestOptions, keyword, content, 0, replaceingDialog)
+            } catch (error) {
+                console.error('批量替换标题失败:', error)
+                UI.showMessage('error', '批量替换标题失败:' + error)
+                // 解析失败，reject Promise
+                replaceingDialog.close()
+                this.replaceAbortFlag = false
+                reject(error)
+            }
+        }
+
+        async doBatchReplaceTitle(requestOptions, keyword, content, lastProductUpdateTime, replaceingDialog) {
+            //循环等待商品列表更新
+            await Utils.waitFor(() => this.productUpdateTime > lastProductUpdateTime, {
+                interval: 300,
+                timeout: 10000,
+            })
+            lastProductUpdateTime = this.productUpdateTime
+            // 构造批量请求参数
+            const batchParams = {
+                product_ids: [...this.productTitles.keys()],
+                name: {},
+                title_info: {},
+                __token: requestOptions.params.token,
+                appid: Number(requestOptions.params.appid),
+                _bid: requestOptions.params.bid,
+                _lid: requestOptions.params.lid,
+            }
+            // 填充name和title_info 遍历this.productTitles
+            this.productTitles.forEach((title, productId) => {
+                batchParams.name[productId] = title.replaceAll(keyword, content)
+                console.log(`修改商品标题:${productId}, ${title}==》${batchParams.name[productId]}`)
+                batchParams.title_info[productId] = {
+                    prefix: '',
+                    suffix: '',
+                }
+            })
+            // 点击class=ecom-g-pagination-next的下一页 直到按钮出现 ecom-g-pagination-disabled
+            const nextPageBtn = document.querySelector('li.ecom-g-pagination-next:not(.ecom-g-pagination-disabled)')
+            if (nextPageBtn) {
+                if (this.replaceAbortFlag) {
+                    this.replaceAbortFlag = false
+                    return
+                } else {
+                    // 发送批量请求
+                    const response = await Utils.sendHttpRequest(requestOptions.method, requestOptions.url, {}, batchParams)
+                    console.log('批量替换标题响应:', response)
+                    nextPageBtn.click()
+                    // 等待下一页加载完成
+                    setTimeout(() => {
+                        this.doBatchReplaceTitle(requestOptions, keyword, content, lastProductUpdateTime, replaceingDialog)
+                    }, 1000)
+                }
+            }else{
+                // 点击确定按钮
+                replaceingDialog.close()
+                this.replaceAbortFlag = false
+                UI.showMessage('success', '批量替换标题完成')
+            }
+
+        }
+
+
+        /* ================= 插件：批量替换标题名称中关键词 END ========================== */
+
         /* ================= 插件：商品列表增强显示货号 ========================== */
         // 监听商品列表请求，更新商品编码映射
         setupRequestListeners() {
             // 监听商品列表请求
-            const listenerId = this.requestListenerManager.addListener('productList', /\/product\/tproduct\/list\?/, (url, responseText) => {
+            const listenerId = this.requestListenerManager.addListener('productList', /\/product\/tproduct\/list\?/, (url, responseText, requestOptions) => {
                 setTimeout(() => {
                     try {
                         this.updateProductMap(JSON.parse(responseText))
@@ -1307,9 +1754,12 @@
         }
         // 更新商品编码映射
         updateProductMap(productListRes) {
+            this.productUpdateTime = Date.now()
             this.productMap.clear()
+            this.productTitles.clear()
             for (let i = 0; i < productListRes.data.length; i++) {
                 const product = productListRes.data[i]
+                this.productTitles.set(product.product_id, product.name)
                 if (product.product_format_new && product.product_format_new[3171] && product.product_format_new[3171][0]) {
                     const code = product.product_format_new[3171][0]['name']
                     if (code) {
@@ -3427,13 +3877,13 @@
                 console.log('验证登录状态返回数据:', resJson)
                 if (!resJson["IsSuccess"]) {
                     console.error('验证登录状态失败:', resJson)
-                    return { valid: false, message: '验证登录状态失败'}
+                    return { valid: false, message: '验证登录状态失败' }
                 }
                 const gotoLogin = resJson['GotoLogin']
 
                 // 根据返回的code判断登录状态
                 if (!gotoLogin) {
-                    return { valid: true, message: '登录状态正常'}
+                    return { valid: true, message: '登录状态正常' }
                 } else {
                     console.log('Cookie已过期，需要重新登陆：', resJson)
                     return { valid: false, message: '登录已失效' }
