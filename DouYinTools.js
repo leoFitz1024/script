@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         抖店工具箱合并版-3.0.7
-// @version      3.0.7
+// @name         抖店工具箱合并版-3.0.8
+// @version      3.0.8
 // @description  抖店增强工具箱 网页功能增强
 // @author       xchen
 // @match        https://*.jinritemai.com/*
@@ -49,7 +49,7 @@
                         }
                     }
                 }
-                console.log(method, url, defaultHeaders, requestData)
+                // console.log(method, url, defaultHeaders, requestData)
                 GM_xmlhttpRequest({
                     method: method,
                     url: url,
@@ -2014,20 +2014,21 @@
                             console.log("没查询到对应库存，跳过:", code)
                             return
                         }
+                        let stockGetNum;
+                        let lastNum = rowData.num
                         if (header[2] && header[2]['name'].includes("天内发货")) {
-                            console.log("不符合条件，跳过:", header[2]['name'], code)
-                            return
+                            stockGetNum = stockMap.get(code + '==')
+                            console.log(`skuId:${code}，更新预售库存:${lastNum}===》${stockGetNum}`)
+                        } else {
+                            stockGetNum = stockMap.get(code)
+                            console.log(`skuId:${code}，更新现货库存:${lastNum}===》${stockGetNum}`)
                         }
-
-                        let stockGetNum = stockMap.get(code)
                         if (stockGetNum < 0) {
                             stockGetNum = 0
                         }
-
-                        let lastNum = rowData.num
                         rowData.num = stockGetNum + ''
                         fc.root.emit()
-                        console.log(`skuId:${code}，更新库存:${lastNum}===》${stockGetNum}`)
+                        
                     } catch (error) {
                         console.error(`更新skuId:${code}库存失败:`, error)
                         UI.showMessage('error', `更新skuId:${code}库存失败`)
@@ -2122,7 +2123,7 @@
                 })
 
                 //获取发货时间数据
-                const timeEle = document.querySelector('.style_timeSpecCheckboxGroup__fwkzP')
+                const timeEle = document.querySelector('div[class*="style_timeSpecCheckboxGroup__"]')
                 const timeMap = {}
                 if (timeEle) {
                     const timeArr = Object.values(timeEle)[0].memoizedProps.children.props.value.value
@@ -2432,6 +2433,7 @@
 
         init() {
             console.log('初始化直播增强功能')
+            this.autoClickOn = ConfigManager.getInstance().getModuleConfig('liveModule', 'autoClickOn', false)
             this.setupRequestListeners()
             this.createMonitor()
         }
@@ -2531,10 +2533,10 @@
             toggleContainer.appendChild(style)
             toggleContainer.appendChild(statusText)
             toggleContainer.appendChild(switchLabel)
-
-            const navHeaders = document.getElementsByClassName('panelHeader-ln_vsr')
-            if (navHeaders.length > 0) {
-                navHeaders[0].insertBefore(toggleContainer, navHeaders[0].lastChild)
+            const filterLive = document.querySelector('.live-control-filter-live')
+            const filterHeader = filterLive.querySelector('div[class^="header-"]')
+            if (filterHeader) {
+                filterHeader.insertBefore(toggleContainer, filterHeader.lastChild)
             }
 
             // 保存DOM引用
@@ -2547,6 +2549,8 @@
             this.lastClickedId = null
             this.refreshGoodsItems()
             console.log(`自动讲解：${isEnabled ? '开启' : '关闭'}`)
+            ConfigManager.getInstance().setModuleConfig('liveModule', 'autoClickOn', isEnabled)
+            ConfigManager.getInstance().saveConfig()
         }
 
         // 更新商品映射
@@ -2608,7 +2612,7 @@
                 const code = this.productMap.get(productId)
 
                 if (code) {
-                    const goodsTextContainer = item.querySelector('.right-mXg75w')
+                    const goodsTextContainer = item.querySelector('div[class^="right-"]')
                     if (goodsTextContainer) {
                         let goodsCodeDiv = goodsTextContainer.querySelector('[id="goodsCode"]')
                         if (!goodsCodeDiv) {
@@ -4207,12 +4211,15 @@
                             console.warn(`查询SKU ${skuId} 库存失败:`, resJson)
                             return
                         }
-                        console.log(`查询SKU ${skuId} 库存成功:`, resJson)
+                        // console.log(`查询SKU ${skuId} 库存成功:`, resJson)
                         const dataJson = JSON.parse(resJson['ReturnValue'])
                         dataJson['datas'].forEach(skuData => {
-                            // 计算可用库存：总库存 - 锁定库存 - 运营云仓库存 - 订单锁定 + 在途库存
+                            // 计算可用库存：总库存 - 锁定库存 - 运营云仓库存 - 订单锁定 + 进货仓库存
                             const stockNum = skuData['qty'] - skuData['lock_qty'] - skuData['lwh_result_lock_qty'] - skuData['order_lock'] + skuData['in_qty']
+                            // 计算预售库存：总库存 - 锁定库存 - 运营云仓库存 - 订单锁定 + 在途库存 + 采购在途库存
+                            const preStockNum = skuData['qty'] - skuData['lock_qty'] - skuData['lwh_result_lock_qty'] - skuData['order_lock'] + skuData['in_qty'] + skuData['purchase_qty']
                             skuStockMap.set(skuData['sku_id'], stockNum)
+                            skuStockMap.set(skuData['sku_id'] + '==', preStockNum)
                         })
                     } catch (parseError) {
                         console.error(`解析SKU ${skuId} 库存数据失败:`, parseError)
@@ -4350,7 +4357,6 @@
                 }
                 current = current[key]
             }
-
             current[lastKey] = value
         }
 
@@ -4466,7 +4472,11 @@
                 },
                 liveModule: {
                     name: '直播列表增强',
-                    description: '直播列表显示货号、自动讲解功能'
+                    description: '直播列表显示货号、自动讲解功能',
+                    hasConfig: true,
+                    configFields: [
+                        { key: 'autoClickOn', label: '自动讲解', type: 'text', defaultValue: false }
+                    ]
                 },
                 competingStoreData: {
                     name: '竞店数据抓取',
@@ -4736,6 +4746,45 @@
                             border-color: #3b82f6;
                             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
                         }
+                        .config-switch {
+                            position: relative;
+                            display: inline-block;
+                            width: 44px;
+                            height: 24px;
+                        }
+                        .config-switch-input {
+                            opacity: 0;
+                            width: 0;
+                            height: 0;
+                        }
+                        .config-switch-slider {
+                            position: absolute;
+                            cursor: pointer;
+                            top: 0;
+                            left: 0;
+                            right: 0;
+                            bottom: 0;
+                            background-color: #d1d5db;
+                            transition: 0.3s;
+                            border-radius: 24px;
+                        }
+                        .config-switch-slider:before {
+                            position: absolute;
+                            content: "";
+                            height: 18px;
+                            width: 18px;
+                            left: 3px;
+                            bottom: 3px;
+                            background-color: white;
+                            transition: 0.3s;
+                            border-radius: 50%;
+                        }
+                        .config-switch-input:checked + .config-switch-slider {
+                            background-color: #3b82f6;
+                        }
+                        .config-switch-input:checked + .config-switch-slider:before {
+                            transform: translateX(20px);
+                        }
                         .global-config-item {
                             margin-bottom: 20px;
                         }
@@ -4804,20 +4853,40 @@
         getModuleConfigHTML(moduleId, configFields) {
             let html = '<div class="module-config">'
             for (const field of configFields) {
-                const value = this.configManager.getModuleConfig(moduleId, field.key) || ''
+                const value = this.configManager.getModuleConfig(moduleId, field.key) !== undefined ? this.configManager.getModuleConfig(moduleId, field.key) : field.defaultValue
+                const fieldType = field.type || 'text'
+                
                 html += `
                         <div class="config-field">
                             <label class="config-label">${field.label}</label>
-                            <input type="text" class="config-input" 
-                                data-module="${moduleId}" 
-                                data-field="${field.key}"
-                                placeholder="${field.placeholder}"
-                                value="${value}">
+                            ${this.generateConfigFieldHTML(moduleId, field, value, fieldType)}
                         </div>
                     `
             }
             html += '</div>'
             return html
+        }
+
+        generateConfigFieldHTML(moduleId, field, value, fieldType) {
+            if (fieldType === 'switch') {
+                return `
+                    <div class="config-switch">
+                        <input type="checkbox" class="config-switch-input" 
+                            data-module="${moduleId}" 
+                            data-field="${field.key}"
+                            ${value ? 'checked' : ''}>
+                        <span class="config-switch-slider"></span>
+                    </div>
+                `
+            } else {
+                return `
+                    <input type="text" class="config-input" 
+                        data-module="${moduleId}" 
+                        data-field="${field.key}"
+                        placeholder="${field.placeholder || ''}"
+                        value="${value}">
+                `
+            }
         }
 
         /**
@@ -4960,6 +5029,14 @@
                     this.configManager.setModuleConfig(moduleId, field, value)
                 })
 
+                // 保存模块配置（switch类型）
+                this.modal.querySelectorAll('.config-switch-input[data-module]').forEach(input => {
+                    const moduleId = input.dataset.module
+                    const field = input.dataset.field
+                    const value = input.checked
+                    this.configManager.setModuleConfig(moduleId, field, value)
+                })
+
                 // 保存全局配置
                 this.modal.querySelectorAll('.config-input[data-global]').forEach(input => {
                     const key = input.dataset.global
@@ -5012,6 +5089,14 @@
                 const field = input.dataset.field
                 const value = this.configManager.getModuleConfig(moduleId, field) || ''
                 input.value = value
+            })
+
+            // 刷新模块配置（switch类型）
+            this.modal.querySelectorAll('.config-switch-input[data-module]').forEach(input => {
+                const moduleId = input.dataset.module
+                const field = input.dataset.field
+                const value = this.configManager.getModuleConfig(moduleId, field)
+                input.checked = value === true
             })
 
             // 刷新全局配置
