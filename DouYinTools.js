@@ -1,16 +1,19 @@
 // ==UserScript==
-// @name         抖店工具箱合并版-3.0.8
-// @version      3.0.8
+// @name         抖店工具箱合并版-3.0.9
+// @version      3.0.9
 // @description  抖店增强工具箱 网页功能增强
 // @author       xchen
 // @match        https://*.jinritemai.com/*
 // @icon         https://lf1-fe.ecombdstatic.com/obj/eden-cn/upqphj/homepage/icon.svg
 // @updateURL    https://cdn.jsdmirror.com/gh/leoFitz1024/script@latest/DouYinTools.js
 // @downloadURL  https://cdn.jsdmirror.com/gh/leoFitz1024/script@latest/DouYinTools.js
+// @require      https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js
 // @connect      www.erp321.com
 // @connect      api.erp321.com
 // @connect      open.feishu.cn
 // @connect      fxg.jinritemai.com
+// @connect      api.dingtalk.com
+// @connect      oapi.dingtalk.com
 // @grant        GM_registerMenuCommand
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -153,6 +156,7 @@
                             subtree: true
                         })
                     } catch (error) {
+                        console.warn(`观察目标节点时出错: ${error.message}`)
                         doReject(new Error(`无法观察目标节点: ${error.message}`))
                         return
                     }
@@ -160,6 +164,7 @@
                     // 设置超时 - 只有当timeout不为-1时才设置超时
                     if (timeout !== -1) {
                         timeoutId = setTimeout(() => {
+                            console.warn(`等待元素超时: ${xpath}`)
                             doReject(new Error(`等待元素超时: ${xpath}`))
                         }, timeout)
                     }
@@ -180,6 +185,7 @@
                     // 设置超时（等待 DOM 加载）- 只有当timeout不为-1时才设置超时
                     if (timeout !== -1) {
                         timeoutId = setTimeout(() => {
+                            console.warn(`等待元素超时: ${xpath} (DOM未加载)`);
                             doReject(new Error(`等待元素超时: ${xpath} (DOM未加载)`))
                         }, timeout)
                     }
@@ -484,6 +490,195 @@
             const month = now.getMonth() + 1
             const day = now.getDate()
             return `${year}/${month}/${day}`
+        },
+
+        /**
+         * 将时间戳格式化为中国时区的时间字符串
+         * @param {number|string|Date} timestamp - 时间戳（毫秒）或Date对象
+         * @param {string} format - 格式化模板，支持：YYYY(年), MM(月), DD(日), HH(时), mm(分), ss(秒), SSS(毫秒)
+         * @returns {string} 格式化后的时间字符串
+         * @example
+         * Utils.formatTimestamp(1704067200000, 'YYYY-MM-DD HH:mm:ss') // '2024-01-01 08:00:00'
+         * Utils.formatTimestamp(Date.now(), 'YYYY/MM/DD') // '2024/01/01'
+         * Utils.formatTimestamp(Date.now(), 'HH:mm:ss.SSS') // '14:30:25.123'
+         */
+        formatTimestamp(timestamp, format = 'YYYY-MM-DD HH:mm:ss') {
+            // 处理输入
+            let date
+            if (timestamp instanceof Date) {
+                date = timestamp
+            } else if (typeof timestamp === 'string') {
+                date = new Date(Number(timestamp))
+            } else if (typeof timestamp === 'number') {
+                date = new Date(timestamp)
+            } else {
+                throw new Error('Invalid timestamp format')
+            }
+
+            // 转换为中国时区（东八区）
+            const cnDate = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+
+            // 提取时间分量
+            const year = cnDate.getFullYear()
+            const month = String(cnDate.getMonth() + 1).padStart(2, '0')
+            const day = String(cnDate.getDate()).padStart(2, '0')
+            const hours = String(cnDate.getHours()).padStart(2, '0')
+            const minutes = String(cnDate.getMinutes()).padStart(2, '0')
+            const seconds = String(cnDate.getSeconds()).padStart(2, '0')
+            const milliseconds = String(cnDate.getMilliseconds()).padStart(3, '0')
+
+            // 格式化映射
+            const formatMap = {
+                'YYYY': year,
+                'MM': month,
+                'DD': day,
+                'HH': hours,
+                'mm': minutes,
+                'ss': seconds,
+                'SSS': milliseconds
+            }
+
+            // 替换格式模板
+            return format.replace(/YYYY|MM|DD|HH|mm|ss|SSS/g, match => formatMap[match])
+        },
+
+        /**
+         * 获取时间戳的各个部分（中国时区）
+         * @param {number|string|Date} timestamp - 时间戳（毫秒）或Date对象，默认为当前时间
+         * @returns {Object} 包含各时间部分的对象
+         * @example
+         * Utils.getTimestampParts(1704067200000)
+         * // { year: '2024', yearShort: '24', month: '01', day: '01', hour: '08', minute: '00', second: '00' }
+         */
+        getTimestampParts(timestamp = Date.now()) {
+            // 处理输入
+            let date
+            if (timestamp instanceof Date) {
+                date = timestamp
+            } else if (typeof timestamp === 'string') {
+                date = new Date(Number(timestamp))
+            } else if (typeof timestamp === 'number') {
+                date = new Date(timestamp)
+            } else {
+                throw new Error('Invalid timestamp format')
+            }
+
+            // 转换为中国时区（东八区）
+            const cnDate = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+
+            const year = cnDate.getFullYear()
+            const month = cnDate.getMonth() + 1
+            const day = cnDate.getDate()
+            const hour = cnDate.getHours()
+            const minute = cnDate.getMinutes()
+            const second = cnDate.getSeconds()
+
+            return {
+                year: String(year),                    // 完整年份，如 '2024'
+                yearShort: String(year).slice(-2),     // 年份后两位，如 '24'
+                month: String(month), // 月份，如 '1'
+                day: String(day),     // 日期，如 '01'
+                hour: String(hour),   // 小时，如 '08'
+                minute: String(minute), // 分钟，如 '00'
+                second: String(second)  // 秒，如 '00'
+            }
+        },
+
+        /**
+         * 将秒数转换为时长字符串
+         * @param {number} seconds - 秒数
+         * @param {Object} options - 配置选项
+         * @param {boolean} options.showSeconds - 是否显示秒，默认为false
+         * @param {string} options.hourUnit - 小时单位，默认为'小时'
+         * @param {string} options.minuteUnit - 分钟单位，默认为'分'
+         * @param {string} options.secondUnit - 秒单位，默认为'秒'
+         * @returns {string} 时长字符串，如 '3小时15分' 或 '3小时15分30秒'
+         * @example
+         * Utils.formatDuration(11730) // '3小时15分'
+         * Utils.formatDuration(11730, { showSeconds: true }) // '3小时15分30秒'
+         * Utils.formatDuration(45) // '0分45秒' (当showSeconds为true时)
+         * Utils.formatDuration(3661, { hourUnit: 'h', minuteUnit: 'm', secondUnit: 's' }) // '1h1m1s'
+         */
+        formatDuration(seconds, options = {}) {
+            // 参数校验
+            if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) {
+                throw new Error('seconds must be a non-negative number')
+            }
+
+            const {
+                showSeconds = false,
+                hourUnit = '小时',
+                minuteUnit = '分',
+                secondUnit = '秒'
+            } = options
+
+            // 计算时分秒
+            const hours = Math.floor(seconds / 3600)
+            const minutes = Math.floor((seconds % 3600) / 60)
+            const secs = Math.floor(seconds % 60)
+
+            // 构建结果字符串
+            let result = ''
+
+            // 添加小时部分（如果有小时或需要显示0小时）
+            if (hours > 0 || (minutes === 0 && secs === 0 && !showSeconds)) {
+                result += `${hours}${hourUnit}`
+            }
+
+            // 添加分钟部分
+            if (minutes > 0 || hours > 0 || (secs === 0 && !showSeconds)) {
+                result += `${minutes}${minuteUnit}`
+            }
+
+            // 添加秒部分（如果showSeconds为true）
+            if (showSeconds) {
+                result += `${secs}${secondUnit}`
+            }
+
+            // 如果结果为空（seconds为0且showSeconds为false），返回0分
+            if (result === '') {
+                result = `0${minuteUnit}`
+            }
+
+            return result
+        },
+
+        /**
+        * 截图元素（移除指定ID元素）
+        * @param {Element} targetEl - 目标元素
+        * @param {string[]} removeIds - 要移除的元素ID数组
+        * @param {Object} stylePatch - 样式补丁对象，键为选择器，值为样式对象
+        * @returns {Promise<HTMLCanvasElement>} - 截图Canvas元素
+        * @description 截图目标元素，移除指定ID元素，同时应用样式补丁
+        */
+        async captureWithoutIds(
+            targetEl,
+            removeIds = [],
+            stylePatch = {}
+        ) {
+            const canvas = await html2canvas(targetEl, {
+                logging: false,
+                useCORS: true,
+                scale: 1,
+                onclone: (clonedDoc) => {
+                    // 1️⃣ 移除指定 ID
+                    removeIds.forEach(id => {
+                        const el = clonedDoc.getElementById(id);
+                        if (el) el.remove();
+                    });
+
+                    // 2️⃣ 应用样式补丁
+                    Object.entries(stylePatch).forEach(([selector, styles]) => {
+                        clonedDoc.querySelectorAll(selector).forEach(el => {
+                            Object.entries(styles).forEach(([prop, value]) => {
+                                el.style[prop] = value;
+                            });
+                        });
+                    });
+                }
+            });
+
+            return canvas;
         }
     }
 
@@ -515,9 +710,11 @@
         /**
          * 添加悬浮按钮
          */
-        addFloatingButton(text, callback) {
+        addFloatingButton(text, style = {}, callback) {
             const button = document.createElement('button')
             button.innerText = text
+            // 合并样式
+
             button.style.position = 'fixed'
             button.style.bottom = '30px'
             button.style.right = '30px'
@@ -530,6 +727,7 @@
             button.style.cursor = 'pointer'
             button.style.fontSize = '16px'
             button.style.zIndex = '10000'
+            Object.assign(button.style, style)
             document.body.appendChild(button)
 
             button.addEventListener('click', () => {
@@ -542,6 +740,951 @@
     }
 
     // ========== 飞书文档操作 ==========
+    /**
+     * 钉钉 SDK（Tampermonkey 版）
+     * 适用场景：
+     * - 油猴脚本环境，跨域请求使用 GM_xmlhttpRequest
+     * - accessToken 通过 GM 存储缓存，避免频繁获取
+     * - 只对服务器异常/网络错误自动重试（5xx / network）
+     */
+
+    const DingTalkSDK = {
+        // 基础配置，可在 init 时覆盖
+        config: {
+            APP_KEY: '',
+            APP_SECRET: '',
+            OPERATOR_ID: '',
+            BASE_URL: 'https://api.dingtalk.com',
+            CUSTOM_ROBOT_URL: 'https://oapi.dingtalk.com/robot/send',
+            // 提前刷新 token 的缓冲时间
+            TOKEN_EXPIRE_BUFFER_MS: 60 * 1000,
+            // 自动重试配置（仅对可重试错误生效）
+            RETRY: {
+                maxRetries: 2,
+                baseDelayMs: 500,
+                maxDelayMs: 5000,
+                jitter: 0.2
+            }
+        },
+
+        // 内存级缓存
+        _tokenCache: null,
+        _tokenExpireAt: 0,
+        // 并发请求时复用同一个 token 请求
+        _tokenPromise: null,
+
+        /**
+         * 参数校验工具函数
+         * @param {string} paramName - 参数名称
+         * @param {*} paramValue - 参数值
+         * @param {string} [type='string'] - 参数类型
+         * @throws {Error} 参数校验失败时抛出错误
+         */
+        _validateParam(paramName, paramValue, type = 'string') {
+            // 检查是否为 null 或 undefined
+            if (paramValue === null || paramValue === undefined) {
+                throw new Error(`参数 ${paramName} 不能为 null 或 undefined`);
+            }
+
+            // 检查是否为字符串类型
+            if (type === 'string') {
+                // 检查是否为字符串
+                if (typeof paramValue !== 'string') {
+                    throw new Error(`参数 ${paramName} 必须是字符串类型`);
+                }
+                // 检查是否为空字符串或仅包含空白字符
+                if (paramValue.trim() === '') {
+                    throw new Error(`参数 ${paramName} 不能为空字符串`);
+                }
+            }
+
+            // 检查是否为数字类型
+            if (type === 'number') {
+                if (typeof paramValue !== 'number' || !Number.isFinite(paramValue)) {
+                    throw new Error(`参数 ${paramName} 必须是有效的数字`);
+                }
+            }
+
+            // 检查是否为对象类型
+            if (type === 'object') {
+                if (typeof paramValue !== 'object' || paramValue === null) {
+                    throw new Error(`参数 ${paramName} 必须是对象类型`);
+                }
+            }
+        },
+
+        /**
+         * 初始化 SDK
+         * @param {string} appKey
+         * @param {string} appSecret
+         * @param {object} options - 覆盖默认配置
+         */
+        init(appKey, appSecret, operatorId, options = {}) {
+            this._validateParam('appKey', appKey);
+            this._validateParam('appSecret', appSecret);
+            this._validateParam('operatorId', operatorId);
+            this.config.APP_KEY = appKey;
+            this.config.APP_SECRET = appSecret;
+            this.config.OPERATOR_ID = operatorId;
+            Object.assign(this.config, options);
+            console.log('DingTalkSDK initialized successfully');
+        },
+
+        /**
+         * 获取 accessToken（带缓存）
+         * @param {boolean} forceRefresh - 是否强制刷新
+         */
+        async getAccessToken(forceRefresh = false) {
+            if (!this.config.APP_KEY || !this.config.APP_SECRET) {
+                throw new Error('APP_KEY/APP_SECRET is required.');
+            }
+
+            const now = Date.now();
+            // 未强制刷新时优先走缓存
+            if (!forceRefresh) {
+                const cached = this._getCachedToken();
+                if (cached && cached.token && cached.expireAt > now + this.config.TOKEN_EXPIRE_BUFFER_MS) {
+                    return cached.token;
+                }
+            }
+
+            if (this._tokenPromise) {
+                return this._tokenPromise;
+            }
+
+            // 并发请求时复用同一条 token 请求
+            this._tokenPromise = (async () => {
+                const url = `${this.config.BASE_URL}/v1.0/oauth2/accessToken`;
+                const body = {
+                    appKey: this.config.APP_KEY,
+                    appSecret: this.config.APP_SECRET
+                };
+
+                const data = await this._request('POST', url, {
+                    headers: { 'Content-Type': 'application/json' },
+                    body,
+                    needAuth: false
+                });
+                if (!data || !data.accessToken) {
+                    throw new Error('Failed to get accessToken.');
+                }
+
+                // 按官方返回的 expireIn 计算过期时间
+                const expireIn = Number(data.expireIn || 0);
+                const expireAt = Date.now() + expireIn * 1000;
+                this._setCachedToken(data.accessToken, expireAt);
+                return data.accessToken;
+            })();
+
+            try {
+                return await this._tokenPromise;
+            } finally {
+                this._tokenPromise = null;
+            }
+        },
+
+        clearTokenCache() {
+            this._tokenCache = null;
+            this._tokenExpireAt = 0;
+            this._removeStore(this._tokenStorageKey());
+        },
+
+        // ------------------------
+        // Doc Workbooks - Sheets
+        // ------------------------
+        /**
+         * 获取所有工作表
+         */
+        async getSheets(workbookId, operatorId = this.config.OPERATOR_ID) {
+            this._validateParam('workbookId', workbookId);
+            this._validateParam('operatorId', operatorId);
+            const path = `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets`;
+            return this._requestAuthed('GET', path, { operatorId });
+        },
+
+        /**
+         * 通过sheet名称获取sheetId
+         * @param {string} workbookId - 工作簿ID
+         * @param {string} sheetName - sheet名称
+         * @param {string} operatorId - 操作者ID，默认为配置中的OPERATOR_ID
+         * @returns {Promise<string|null>} - 返回sheetId，未找到返回null
+         * @example
+         * const sheetId = await DingTalkSDK.getSheetIdByName('workbookId123', 'Sheet1');
+         * if (sheetId) {
+         *     console.log('Sheet ID:', sheetId);
+         * } else {
+         *     console.log('Sheet not found');
+         * }
+         */
+        async getSheetIdByName(workbookId, sheetName, operatorId = this.config.OPERATOR_ID) {
+            this._validateParam('workbookId', workbookId);
+            this._validateParam('sheetName', sheetName);
+            this._validateParam('operatorId', operatorId);
+            try {
+                const result = await this.getSheets(workbookId, operatorId);
+
+                // 钉钉API返回的数据结构：{ "value": [{ "id": "stxxxx", "name": "Sheet1" }] }
+                const sheets = result?.value || [];
+
+                if (!Array.isArray(sheets)) {
+                    console.warn('获取sheet列表返回格式异常:', result);
+                    return null;
+                }
+
+                // 查找匹配的sheet
+                const sheet = sheets.find(s => s.name === sheetName);
+
+                if (sheet) {
+                    return sheet.id;
+                }
+
+                return null;
+            } catch (error) {
+                console.error('通过名称获取sheetId失败:', error);
+                throw error;
+            }
+        },
+
+        /**
+         * 获取单个工作表属性
+         */
+        async getSheet(workbookId, sheetId, operatorId = this.config.OPERATOR_ID) {
+            this._validateParam('workbookId', workbookId);
+            this._validateParam('sheetId', sheetId);
+            this._validateParam('operatorId', operatorId);
+            const path = `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets/${encodeURIComponent(sheetId)}`;
+            return this._requestAuthed('GET', path, { operatorId });
+        },
+
+        /**
+         * 创建工作表
+         */
+        async createSheet(workbookId, name, operatorId = this.config.OPERATOR_ID) {
+            this._validateParam('workbookId', workbookId);
+            this._validateParam('name', name);
+            this._validateParam('operatorId', operatorId);
+            const path = `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets`;
+            return this._requestAuthed('POST', path, { operatorId }, { name });
+        },
+
+        /**
+         * 删除工作表
+         */
+        async deleteSheet(workbookId, sheetId, operatorId = this.config.OPERATOR_ID) {
+            this._validateParam('workbookId', workbookId);
+            this._validateParam('sheetId', sheetId);
+            this._validateParam('operatorId', operatorId);
+            const path = `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets/${encodeURIComponent(sheetId)}`;
+            return this._requestAuthed('DELETE', path, { operatorId });
+        },
+
+        // ------------------------
+        // Row/Column Operations
+        // ------------------------
+        /**
+         * 在指定行上方插入行
+         */
+        async insertRowsBefore(workbookId, sheetId, row, rowCount, operatorId = this.config.OPERATOR_ID) {
+            this._validateParam('workbookId', workbookId);
+            this._validateParam('sheetId', sheetId);
+            this._validateParam('row', row, 'number');
+            this._validateParam('rowCount', rowCount, 'number');
+            this._validateParam('operatorId', operatorId);
+            const path = `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets/${encodeURIComponent(sheetId)}/insertRowsBefore`;
+            return this._requestAuthed('POST', path, { operatorId }, { row, rowCount });
+        },
+
+        /**
+         * 在指定列左侧插入列
+         */
+        async insertColumnsBefore(workbookId, sheetId, column, columnCount, operatorId = this.config.OPERATOR_ID) {
+            this._validateParam('workbookId', workbookId);
+            this._validateParam('sheetId', sheetId);
+            this._validateParam('column', column, 'number');
+            this._validateParam('columnCount', columnCount, 'number');
+            this._validateParam('operatorId', operatorId);
+            const path = `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets/${encodeURIComponent(sheetId)}/insertColumnsBefore`;
+            return this._requestAuthed('POST', path, { operatorId }, { column, columnCount });
+        },
+
+        /**
+         * 删除行
+         */
+        async deleteRows(workbookId, sheetId, row, rowCount, operatorId = this.config.OPERATOR_ID) {
+            this._validateParam('workbookId', workbookId);
+            this._validateParam('sheetId', sheetId);
+            this._validateParam('row', row, 'number');
+            this._validateParam('rowCount', rowCount, 'number');
+            this._validateParam('operatorId', operatorId);
+            const path = `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets/${encodeURIComponent(sheetId)}/deleteRows`;
+            return this._requestAuthed('POST', path, { operatorId }, { row, rowCount });
+        },
+
+        /**
+         * 删除列
+         */
+        async deleteColumns(workbookId, sheetId, column, columnCount, operatorId = this.config.OPERATOR_ID) {
+            this._validateParam('workbookId', workbookId);
+            this._validateParam('sheetId', sheetId);
+            this._validateParam('column', column, 'number');
+            this._validateParam('columnCount', columnCount, 'number');
+            this._validateParam('operatorId', operatorId);
+            const path = `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets/${encodeURIComponent(sheetId)}/deleteColumns`;
+            return this._requestAuthed('POST', path, { operatorId }, { column, columnCount });
+        },
+
+        // ------------------------
+        // Range Operations
+        // ------------------------
+        /**
+         * 获取单元格区域内容/样式
+         */
+        async getRange(workbookId, sheetId, rangeAddress, select, operatorId = this.config.OPERATOR_ID) {
+            this._validateParam('workbookId', workbookId);
+            this._validateParam('sheetId', sheetId);
+            this._validateParam('rangeAddress', rangeAddress);
+            this._validateParam('operatorId', operatorId);
+            const path = `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets/${encodeURIComponent(sheetId)}/ranges/${encodeURIComponent(rangeAddress)}`;
+            const query = { operatorId };
+            if (select) query.select = select;
+            return this._requestAuthed('GET', path, query);
+        },
+
+        /**
+         * 更新单元格区域
+         */
+        async updateRange(workbookId, sheetId, rangeAddress, payload, operatorId = this.config.OPERATOR_ID) {
+            this._validateParam('workbookId', workbookId);
+            this._validateParam('sheetId', sheetId);
+            this._validateParam('rangeAddress', rangeAddress);
+            this._validateParam('payload', payload, 'object');
+            this._validateParam('operatorId', operatorId);
+            const path = `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets/${encodeURIComponent(sheetId)}/ranges/${encodeURIComponent(rangeAddress)}`;
+            return this._requestAuthed('PUT', path, { operatorId }, payload);
+        },
+
+        /**
+         * 清除单元格区域数据（保留格式）
+         */
+        async clearRangeData(workbookId, sheetId, rangeAddress, operatorId = this.config.OPERATOR_ID) {
+            this._validateParam('workbookId', workbookId);
+            this._validateParam('sheetId', sheetId);
+            this._validateParam('rangeAddress', rangeAddress);
+            this._validateParam('operatorId', operatorId);
+            const path = `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets/${encodeURIComponent(sheetId)}/ranges/${encodeURIComponent(rangeAddress)}/clearData`;
+            return this._requestAuthed('POST', path, { operatorId });
+        },
+
+        /**
+         * 清除单元格区域所有内容（含格式）
+         */
+        async clearRangeAll(workbookId, sheetId, rangeAddress, operatorId = this.config.OPERATOR_ID) {
+            this._validateParam('workbookId', workbookId);
+            this._validateParam('sheetId', sheetId);
+            this._validateParam('rangeAddress', rangeAddress);
+            this._validateParam('operatorId', operatorId);
+            const path = `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets/${encodeURIComponent(sheetId)}/ranges/${encodeURIComponent(rangeAddress)}/clear`;
+            return this._requestAuthed('POST', path, { operatorId });
+        },
+
+        /**
+         * 合并单元格
+         * merge_type: 合并类型，可选值：
+                - "mergeAll": 全部合并（默认）
+                - "mergeRows": 按行合并
+                - "mergeColumns": 按列合并
+                - "unmerge": 取消合并
+         */
+        async mergeRange(workbookId, sheetId, rangeAddress, mergeType = 'mergeAll', operatorId = this.config.OPERATOR_ID) {
+            this._validateParam('workbookId', workbookId);
+            this._validateParam('sheetId', sheetId);
+            this._validateParam('rangeAddress', rangeAddress);
+            this._validateParam('operatorId', operatorId);
+            const path = `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets/${encodeURIComponent(sheetId)}/ranges/${encodeURIComponent(rangeAddress)}/merge`;
+            return this._requestAuthed('POST', path, { operatorId, mergeType });
+        },
+
+
+        /**
+         * 在指定列查找指定值所在的行号（1-based）
+         * - 每次读取 batchSize 行（默认 200）
+         * - 未找到目标值时，返回“最下方空白行”的行号
+         * - 连续出现 maxEmptyRows 个空白行时判定数据结束
+         * 说明：
+         * 1) column 支持列字母（如 "A"）或 0-based 列索引（如 0 表示 A 列）
+         * 2) 空白判断：null/undefined/空字符串/仅空白字符均视为“空”
+         * 3) 返回的行号为 A1 记法对应的行号（1-based）
+         */
+        async findRowByColumnValue(workbookId, sheetId, column, targetValue, options = {}) {
+            this._validateParam('workbookId', workbookId);
+            this._validateParam('sheetId', sheetId);
+            this._validateParam('column', column);
+            this._validateParam('targetValue', targetValue);
+
+            const batchSize = Number(options.batchSize || 200);
+            const maxEmptyRows = Number(options.maxEmptyRows || 10);
+            const startRow = Number(options.startRow || 1);
+            const format = (options.format || 'raw').toLowerCase();
+
+            if (!Number.isFinite(batchSize) || batchSize <= 0) {
+                throw new Error('batchSize must be a positive number.');
+            }
+            if (!Number.isFinite(maxEmptyRows) || maxEmptyRows <= 0) {
+                throw new Error('maxEmptyRows must be a positive number.');
+            }
+            if (!Number.isFinite(startRow) || startRow <= 0) {
+                throw new Error('startRow must be a positive number (1-based).');
+            }
+
+            const columnLetter = this._normalizeColumnLetter(column);
+            let currentRow = startRow;
+            let consecutiveEmpty = 0;
+
+            while (true) {
+                const endRow = currentRow + batchSize - 1;
+                const rangeAddress = `${columnLetter}${currentRow}:${columnLetter}${endRow}`;
+                const result = await this.getRange(workbookId, sheetId, rangeAddress, 'values');
+                const values = result && result.values ? result.values : [];
+
+                // 遍历本批次每一行（即使 API 未返回，也按空白处理）
+                for (let i = 0; i < batchSize; i += 1) {
+                    const rowIndex = currentRow + i; // 1-based
+                    const rowArray = values[i] || [];
+                    const cellValue = rowArray[0];
+                    const formattedCell = this._formatCellValue(cellValue, format);
+                    const cellText = formattedCell === null || formattedCell === undefined ? '' : String(formattedCell);
+                    const isEmpty = cellText.trim() === '';
+                    if (!isEmpty) {
+                        consecutiveEmpty = 0;
+                        if (cellText === targetValue) {
+                            return { rowIndex, find: true };
+                        }
+                    } else {
+                        consecutiveEmpty += 1;
+                        if (consecutiveEmpty >= maxEmptyRows) {
+                            // 返回“最下方空白行”的行号（即这段空白的起始行）
+                            return { rowIndex: rowIndex - maxEmptyRows + 1, find: false };
+                        }
+                    }
+                }
+
+                currentRow += batchSize;
+            }
+        },
+        // ------------------------
+        // Robot Messages
+        // ------------------------
+        /**
+         * 人与人会话发送机器人消息
+         */
+        async sendPrivateChatMessage(payload) {
+            this._validateParam('payload', payload, 'object');
+            const path = `/v1.0/robot/privateChatMessages/send`;
+            const body = this._normalizeRobotPayload(payload);
+            return this._requestAuthed('POST', path, null, body);
+        },
+
+        /**
+         * 批量发送人与机器人单聊消息
+         */
+        async batchSendOToMessages(payload) {
+            this._validateParam('payload', payload, 'object');
+            const path = `/v1.0/robot/oToMessages/batchSend`;
+            const body = this._normalizeRobotPayload(payload);
+            return this._requestAuthed('POST', path, null, body);
+        },
+
+        /**
+         * 发送群聊机器人消息
+         */
+        async sendGroupMessage(payload) {
+            this._validateParam('payload', payload, 'object');
+            payload.robotCode = this.config.APP_KEY;
+            const path = `/v1.0/robot/groupMessages/send`;
+            const body = this._normalizeRobotPayload(payload);
+            return this._requestAuthed('POST', path, null, body);
+        },
+
+        // 自定义机器人（旧版接口）
+        async sendCustomRobotMessage(accessToken, messageBody, options = {}) {
+            this._validateParam('accessToken', accessToken);
+            this._validateParam('messageBody', messageBody, 'object');
+            const query = new URLSearchParams({ access_token: accessToken });
+            if (options.timestamp) query.append('timestamp', String(options.timestamp));
+            if (options.sign) query.append('sign', String(options.sign));
+            const url = `${this.config.CUSTOM_ROBOT_URL}?${query.toString()}`;
+            return this._request('POST', url, {
+                headers: { 'Content-Type': 'application/json' },
+                body: messageBody,
+                needAuth: false
+            });
+        },
+
+        // ------------------------
+        // Media Upload
+        // ------------------------
+        /**
+         * 上传媒体文件（旧版接口）
+         * @param {string} type - 媒体文件类型：image(图片)、voice(语音)、video(视频)、file(普通文件)
+         * @param {Blob|ArrayBuffer|Uint8Array} fileData - 文件数据
+         * @param {string} filename - 文件名
+         * @returns {Promise<Object>} - 返回包含media_id的对象
+         * @example
+         * // 上传图片
+         * const result = await DingTalkSDK.uploadMedia('image', imageBlob, 'image.jpg');
+         * console.log(result.media_id);
+         *
+         * // 上传文件
+         * const result = await DingTalkSDK.uploadMedia('file', fileBuffer, 'document.pdf');
+         * console.log(result.media_id);
+         */
+        async uploadMedia(type, fileData, filename) {
+            // 参数校验
+            if (!type || typeof type !== 'string') {
+                throw new Error('type must be a non-empty string');
+            }
+            const validTypes = ['image', 'voice', 'video', 'file'];
+            if (!validTypes.includes(type)) {
+                throw new Error(`type must be one of: ${validTypes.join(', ')}`);
+            }
+            if (!fileData) {
+                throw new Error('fileData is required');
+            }
+            if (!filename || typeof filename !== 'string') {
+                throw new Error('filename must be a non-empty string');
+            }
+
+            // 获取access_token
+            const accessToken = await this.getAccessToken();
+
+            // 构建URL（旧版接口使用oapi.dingtalk.com）
+            const url = `https://oapi.dingtalk.com/media/upload?access_token=${encodeURIComponent(accessToken)}&type=${encodeURIComponent(type)}`;
+
+            // 构建multipart/form-data请求体
+            const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
+            const CRLF = '\r\n';
+
+            // 将文件数据转换为Uint8Array
+            let fileBytes;
+            if (fileData instanceof Blob) {
+                fileBytes = new Uint8Array(await fileData.arrayBuffer());
+            } else if (fileData instanceof ArrayBuffer) {
+                fileBytes = new Uint8Array(fileData);
+            } else if (fileData instanceof Uint8Array) {
+                fileBytes = fileData;
+            } else {
+                throw new Error('fileData must be Blob, ArrayBuffer, or Uint8Array');
+            }
+
+            // 构建multipart body
+            const parts = [];
+            // type字段
+            parts.push(`--${boundary}${CRLF}`);
+            parts.push(`Content-Disposition: form-data; name="type"${CRLF}${CRLF}`);
+            parts.push(`${type}${CRLF}`);
+
+            // media字段（文件）
+            parts.push(`--${boundary}${CRLF}`);
+            parts.push(`Content-Disposition: form-data; name="media"; filename="${filename}"${CRLF}`);
+            parts.push(`Content-Type: application/octet-stream${CRLF}${CRLF}`);
+
+            // 将所有文本部分转换为Uint8Array
+            const encoder = new TextEncoder();
+            const textParts = parts.map(p => encoder.encode(p));
+            const endBoundary = encoder.encode(`${CRLF}--${boundary}--${CRLF}`);
+
+            // 合并所有部分
+            const totalLength = textParts.reduce((sum, part) => sum + part.length, 0) + fileBytes.length + endBoundary.length;
+            const body = new Uint8Array(totalLength);
+
+            let offset = 0;
+            textParts.forEach(part => {
+                body.set(part, offset);
+                offset += part.length;
+            });
+            body.set(fileBytes, offset);
+            offset += fileBytes.length;
+            body.set(endBoundary, offset);
+
+            // 发送请求
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: url,
+                    headers: {
+                        'Content-Type': `multipart/form-data; boundary=${boundary}`
+                    },
+                    data: body.buffer,
+                    responseType: 'json',
+                    onload: (response) => {
+                        const status = response.status || 0;
+                        if (status >= 200 && status < 300) {
+                            try {
+                                const result = JSON.parse(response.responseText);
+                                if (result.errcode === 0) {
+                                    resolve({
+                                        mediaId: result.media_id,
+                                        type: result.type,
+                                        createdAt: result.created_at
+                                    });
+                                } else {
+                                    reject(new Error(`API Error: ${result.errmsg} (code: ${result.errcode})`));
+                                }
+                            } catch (e) {
+                                reject(new Error('Failed to parse response'));
+                            }
+                        } else {
+                            reject(new Error(`HTTP ${status}: ${response.responseText}`));
+                        }
+                    },
+                    onerror: (error) => {
+                        reject(new Error('Network error: ' + error.error));
+                    }
+                });
+            });
+        },
+
+        // ------------------------
+        // Internal Helpers
+        // ------------------------
+        /**
+         * 带鉴权请求封装
+         */
+        async _requestAuthed(method, path, query, body) {
+            const url = this._buildUrl(path, query);
+            const token = await this.getAccessToken();
+            return this._request(method, url, {
+                headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+                body
+            });
+        },
+
+        /**
+         * 组装 URL（拼接 query）
+         */
+        _buildUrl(path, query) {
+            if (!query || Object.keys(query).length === 0) {
+                return `${this.config.BASE_URL}${path}`;
+            }
+            const q = new URLSearchParams();
+            Object.keys(query).forEach((k) => {
+                if (query[k] !== undefined && query[k] !== null) {
+                    q.append(k, String(query[k]));
+                }
+            });
+            return `${this.config.BASE_URL}${path}?${q.toString()}`;
+        },
+
+        /**
+         * 请求入口，负责重试策略
+         */
+        async _request(method, url, options = {}) {
+            const retryCfg = Object.assign({}, this.config.RETRY, options.retry);
+            let attempt = 0;
+
+            while (true) {
+                try {
+                    return await this._doRequest(method, url, options);
+                } catch (err) {
+                    attempt += 1;
+                    const shouldRetry = this._isRetriableError(err);
+                    if (!shouldRetry || attempt > retryCfg.maxRetries) {
+                        throw err;
+                    }
+                    // 采用指数退避 + 抖动
+                    const delay = this._calcDelay(retryCfg, attempt);
+                    await this._sleep(delay);
+                }
+            }
+        },
+
+        /**
+         * 实际发起请求
+         */
+        _doRequest(method, url, options) {
+            const headers = options.headers || {};
+            const body = options.body;
+            let data = null;
+
+            if (body !== undefined && body !== null && method !== 'GET') {
+                const contentType = headers['Content-Type'] || headers['content-type'] || '';
+                // JSON 请求体自动序列化
+                if (contentType.includes('application/json') && typeof body === 'object') {
+                    data = JSON.stringify(body);
+                } else {
+                    data = body;
+                }
+            }
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method,
+                    url,
+                    headers,
+                    data,
+                    onload: (response) => {
+                        const status = response.status || 0;
+                        const isOk = status >= 200 && status < 300;
+                        if (!isOk) {
+                            const err = new Error(`HTTP ${status}, responseText: ${response.responseText}`);
+                            err.status = status;
+                            err.responseText = response.responseText;
+                            err.response = response;
+                            reject(err);
+                            return;
+                        }
+
+                        const text = response.responseText || '';
+                        try {
+                            // 尝试解析 JSON
+                            resolve(text ? JSON.parse(text) : {});
+                        } catch {
+                            resolve(text);
+                        }
+                    },
+                    onerror: (error) => {
+                        const err = new Error('Network error');
+                        err.isNetworkError = true;
+                        err.error = error;
+                        reject(err);
+                    }
+                });
+            });
+        },
+
+        /**
+         * 判断是否可重试（仅网络/5xx）
+         */
+        _isRetriableError(err) {
+            if (err && err.isNetworkError) return true;
+            const status = err && err.status;
+            if (typeof status === 'number') {
+                if (status >= 500 && status < 600) return true;
+                return false;
+            }
+            return false;
+        },
+
+        /**
+         * 计算重试等待时间（指数退避+随机抖动）
+         */
+        _calcDelay(retryCfg, attempt) {
+            const exp = Math.min(retryCfg.baseDelayMs * Math.pow(2, attempt - 1), retryCfg.maxDelayMs);
+            const jitter = exp * retryCfg.jitter * (Math.random() * 2 - 1);
+            return Math.max(0, Math.floor(exp + jitter));
+        },
+
+        /**
+         * 延迟工具
+         */
+        _sleep(ms) {
+            return new Promise((resolve) => setTimeout(resolve, ms));
+        },
+
+        /**
+         * 机器人消息参数标准化：
+         * msgParam 若为对象，自动 JSON.stringify
+         */
+        _normalizeRobotPayload(payload) {
+            if (!payload || typeof payload !== 'object') {
+                return payload;
+            }
+            const copy = Object.assign({}, payload);
+            if (copy.msgParam && typeof copy.msgParam === 'object') {
+                copy.msgParam = JSON.stringify(copy.msgParam);
+            }
+            return copy;
+        },
+
+
+        /**
+         * 格式化单元格值
+         * @param {any} value - 原始值
+         * @param {string} format - raw | date | datetime
+         * 说明：
+         * - raw：原样返回
+         * - date：将 46025 这类 Excel 序列号转为 YYYY-MM-DD
+         * - datetime：将 Excel 序列号转为 YYYY-MM-DD HH:mm:ss
+         */
+        _formatCellValue(value, format) {
+            if (format === 'raw') return value;
+            if (value === null || value === undefined) return value;
+            if (typeof value === 'string' && value.trim() === '') return value;
+
+            const num = typeof value === 'number' ? value : Number(value);
+            if (!Number.isFinite(num)) {
+                return value;
+            }
+
+            const date = this._excelSerialToDate(num);
+            if (!date) return value;
+            if (format === 'date') return this._formatDate(date);
+            if (format === 'datetime') return this._formatDateTime(date);
+            return value;
+        },
+
+        /**
+         * Excel 序列号转 Date
+         * - Excel 以 1899-12-30 为 0（包含 1900 闰年 bug 的常见处理）
+         * - 支持小数部分表示时间
+         */
+        _excelSerialToDate(serial) {
+            if (!Number.isFinite(serial)) return null;
+            // 使用 UTC 基准计算，避免本地时区影响
+            const excelEpochUtc = Date.UTC(1899, 11, 30);
+            const ms = Math.round(serial * 24 * 60 * 60 * 1000);
+            return new Date(excelEpochUtc + ms);
+        },
+
+        /**
+         * 日期格式化为 YYYY-MM-DD
+         */
+        _formatDate(date) {
+            const parts = this._getChinaDateParts(date);
+            return `${parts.y}-${parts.m}-${parts.d}`;
+        },
+
+        /**
+         * 日期时间格式化为 YYYY-MM-DD HH:mm:ss
+         */
+        _formatDateTime(date) {
+            const parts = this._getChinaDateParts(date);
+            return `${parts.y}-${parts.m}-${parts.d} ${parts.hh}:${parts.mm}:${parts.ss}`;
+        },
+
+        /**
+         * 按中国标准时间（UTC+8）获取日期时间组件
+         * - 通过 UTC 基准 + 8 小时偏移，避免本地时区影响
+         */
+        _getChinaDateParts(date) {
+            const chinaOffsetMs = 8 * 60 * 60 * 1000;
+            const chinaMs = date.getTime() + chinaOffsetMs;
+            const d = new Date(chinaMs);
+            const y = d.getUTCFullYear();
+            const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(d.getUTCDate()).padStart(2, '0');
+            const hh = String(d.getUTCHours()).padStart(2, '0');
+            const mm = String(d.getUTCMinutes()).padStart(2, '0');
+            const ss = String(d.getUTCSeconds()).padStart(2, '0');
+            return { y, m, d: day, hh, mm, ss };
+        },
+
+        /**
+         * 标准化列标识（数字/字母 -> 大写字母）
+         * @param {string|number} column
+         */
+        _normalizeColumnLetter(column) {
+            if (typeof column === 'number' && Number.isFinite(column)) {
+                return this._columnIndexToLetter(column);
+            }
+            if (typeof column === 'string') {
+                const text = column.trim().toUpperCase();
+                if (!text) {
+                    throw new Error('column is empty.');
+                }
+                // 简单校验：仅允许 A-Z 字母
+                if (!/^[A-Z]+$/.test(text)) {
+                    throw new Error('column must be a letter like "A" or "AA".');
+                }
+                return text;
+            }
+            throw new Error('column must be a letter or 0-based index.');
+        },
+
+        /**
+         * 列索引（0-based）转列字母（A1 记法）
+         */
+        _columnIndexToLetter(index) {
+            if (!Number.isFinite(index) || index < 0) {
+                throw new Error('column index must be a non-negative number.');
+            }
+            let n = Math.floor(index);
+            let letter = '';
+            while (n >= 0) {
+                letter = String.fromCharCode(65 + (n % 26)) + letter;
+                n = Math.floor(n / 26) - 1;
+            }
+            return letter;
+        },
+
+        /**
+         * token 存储 key
+         */
+        _tokenStorageKey() {
+            return `dingtalk_token_${this.config.APP_KEY || 'default'}`;
+        },
+
+        /**
+         * 读取缓存（先内存再存储）
+         */
+        _getCachedToken() {
+            if (this._tokenCache && this._tokenExpireAt) {
+                return { token: this._tokenCache, expireAt: this._tokenExpireAt };
+            }
+            const stored = this._getStore(this._tokenStorageKey());
+            if (stored && stored.token && stored.expireAt) {
+                this._tokenCache = stored.token;
+                this._tokenExpireAt = stored.expireAt;
+                return stored;
+            }
+            return null;
+        },
+
+        /**
+         * 写入缓存（内存 + 存储）
+         */
+        _setCachedToken(token, expireAt) {
+            this._tokenCache = token;
+            this._tokenExpireAt = expireAt;
+            this._setStore(this._tokenStorageKey(), { token, expireAt });
+        },
+
+        /**
+         * 读取存储（优先 GM 存储）
+         */
+        _getStore(key) {
+            if (typeof GM_getValue === 'function') {
+                return GM_getValue(key, null);
+            }
+            try {
+                const raw = localStorage.getItem(key);
+                return raw ? JSON.parse(raw) : null;
+            } catch {
+                return null;
+            }
+        },
+
+        /**
+         * 写入存储（优先 GM 存储）
+         */
+        _setStore(key, value) {
+            if (typeof GM_setValue === 'function') {
+                GM_setValue(key, value);
+                return;
+            }
+            try {
+                localStorage.setItem(key, JSON.stringify(value));
+            } catch { }
+        },
+
+        /**
+         * 删除存储（优先 GM 存储）
+         */
+        _removeStore(key) {
+            if (typeof GM_deleteValue === 'function') {
+                GM_deleteValue(key);
+                return;
+            }
+            try {
+                localStorage.removeItem(key);
+            } catch { }
+        }
+    };
+
+    if (typeof window !== 'undefined') {
+        // 浏览器环境挂全局
+        window.DingTalkSDK = DingTalkSDK;
+    }
+
     /**
      * 飞书API工具类
      */
@@ -938,10 +2081,11 @@
          * @param {RegExp} urlPattern - URL匹配模式
          * @param {Function} moduleFactory - 模块工厂函数
          * @param {Function} cleanupCallback - 清理回调函数
-         * @param {Object} options - 可选配置 { priority: 优先级(数字越大优先级越高), enabled: 是否启用(默认true) }
+         * @param {Object} options - 可选配置 { priority: 优先级(数字越大优先级越高), enabled: 是否启用(默认true), moduleConfig: 模块配置对象 }
+         * @param {Object} options.moduleConfig - 模块配置对象 { name: 模块名称, description: 模块描述, hasConfig: 是否有配置, configFields: 配置字段数组 }
          */
         registerModule(moduleId, urlPattern, moduleFactory, cleanupCallback, options = {}) {
-            const moduleConfig = {
+            const moduleEntry = {
                 id: moduleId,
                 urlPattern: urlPattern,
                 factory: moduleFactory,
@@ -949,10 +2093,11 @@
                 instance: null,
                 priority: options.priority || 0,
                 enabled: options.enabled !== undefined ? options.enabled : true,
+                moduleConfig: options.moduleConfig || null, // 模块配置对象（名称、描述、配置字段等）
             }
 
             // 存储模块配置
-            this.modules.set(moduleId, moduleConfig)
+            this.modules.set(moduleId, moduleEntry)
 
             // 按URL模式分组
             if (!this.urlModules.has(urlPattern)) {
@@ -960,7 +2105,31 @@
             }
             this.urlModules.get(urlPattern).push(moduleId)
 
-            console.log(`模块注册成功: ${moduleId} (优先级: ${moduleConfig.priority})`)
+            console.log(`模块注册成功: ${moduleId} (优先级: ${moduleEntry.priority})`)
+        }
+
+        /**
+         * 获取所有模块的配置信息
+         * @returns {Object} - 以moduleId为键的模块配置对象
+         */
+        getAllModuleConfigs() {
+            const configs = {}
+            for (const [moduleId, moduleEntry] of this.modules) {
+                if (moduleEntry.moduleConfig) {
+                    configs[moduleId] = moduleEntry.moduleConfig
+                }
+            }
+            return configs
+        }
+
+        /**
+         * 获取单个模块的配置信息
+         * @param {string} moduleId - 模块唯一标识
+         * @returns {Object|null} - 模块配置对象
+         */
+        getModuleConfig(moduleId) {
+            const moduleEntry = this.modules.get(moduleId)
+            return moduleEntry ? moduleEntry.moduleConfig : null
         }
 
         /**
@@ -1064,8 +2233,8 @@
 
             // 初始路由处理
             this.handleRouteChange()
-
             console.log('模块注册管理器已启动')
+
         }
 
         /**
@@ -1165,6 +2334,7 @@
         getCurrentUrl() {
             return location.href
         }
+
     }
 
     // ========== 请求监听器管理器 ==========
@@ -1326,11 +2496,71 @@
 
     /* =========================功能模块=========================== */
 
+    // ========== 模块基类 ==========
+    /**
+     * 模块基类 - 所有功能模块应继承此类
+     * 提供统一的接口：init、destroy、getConfig
+     */
+    class ModuleBase {
+        /**
+         * 模块唯一标识，子类必须定义
+         * @example static moduleId = 'moduleName'
+         */
+        static moduleId = null
+
+        /**
+         * 模块配置定义，子类可选定义
+         * @example
+         * static moduleConfig = {
+         *     name: '模块名称',
+         *     description: '模块描述',
+         *     hasConfig: true,
+         *     configFields: [
+         *         { key: 'fieldKey', label: '字段标签', type: 'text', placeholder: '提示文本' }
+         *     ]
+         * }
+         */
+        static moduleConfig = null
+
+        /**
+         * 初始化模块
+         * 子类应重写此方法实现具体的初始化逻辑
+         * @abstract
+         */
+        init() {
+            throw new Error(`Module ${this.constructor.moduleId} must implement init() method`)
+        }
+
+        /**
+         * 销毁模块
+         * 子类应重写此方法实现资源清理
+         * @abstract
+         */
+        destroy() {
+            throw new Error(`Module ${this.constructor.moduleId} must implement destroy() method`)
+        }
+
+        /**
+         * 获取当前模块的配置值
+         * @param {string} key - 配置项名称
+         * @param {*} defaultValue - 默认值
+         * @returns {*} 配置值
+         */
+        getConfig(key, defaultValue = undefined) {
+            return ConfigManager.getInstance().getModuleConfig(this.constructor.moduleId, key, defaultValue)
+        }
+    }
+
     // ========== 商品列表增强 ==========
-    class ProductListModule {
+    class ProductListModule extends ModuleBase {
         static moduleId = 'productListModule'
+        static moduleConfig = {
+            name: '商品列表增强',
+            description: '增加商品货号显示、库存弹窗一件同步现货库存。'
+        }
 
         constructor(requestListenerManager) {
+            super()
             this.productUpdateTime = 0
             this.productMap = new Map()
             this.productTitles = new Map()
@@ -1637,13 +2867,13 @@
             const loadingDiv = modalContent.querySelector('div[style*="animation: spin"]');
             const titleH3 = modalContent.querySelector('h3');
             const subtitleP = modalContent.querySelector('p');
-            
+
             // 复制按钮点击事件处理
             const handleCopyIds = () => {
                 if (this.replaceTitleErrorList.length > 0) {
                     // 提取商品ID并以逗号拼接
                     const ids = this.replaceTitleErrorList.map(item => item.product_id).join(',');
-                    
+
                     // 复制到剪贴板
                     navigator.clipboard.writeText(ids).then(() => {
                         // 显示复制成功提示
@@ -1654,7 +2884,7 @@
                     });
                 }
             };
-            
+
             // 绑定复制按钮事件
             copyBtn.addEventListener('click', handleCopyIds);
             closeBtn.addEventListener('click', () => {
@@ -1671,7 +2901,7 @@
                 updateResults: (failedItems) => {
                     // 清空现有列表
                     failListDiv.innerHTML = '';
-                    
+
                     if (failedItems && failedItems.length > 0) {
                         // 创建失败商品列表
                         failedItems.forEach(item => {
@@ -1689,7 +2919,7 @@
                             `;
                             failListDiv.appendChild(failItem);
                         });
-                        
+
                         // 显示结果区域
                         resultsDiv.style.display = 'block';
                     }
@@ -1767,7 +2997,7 @@
                 // 支持查询按钮内嵌在 span 中的情况
                 const queryBtn = Utils.getElementByXpath("//button[contains(@class,'ecom-g-btn')][.//text()[contains(.,'查询')]]", searchFormContainer)
                 queryBtn.click()
-                
+
                 setTimeout(async () => {
                     document.querySelector('span.ecom-g-sp-icon[data-kora="修改标题"]')?.click();
                     try {
@@ -1779,7 +3009,7 @@
                             replaceingDialog.close()
                             this.replaceAbortFlag = false
                             return
-                        }else{
+                        } else {
                             console.error('点击确定按钮失败:', error)
                             UI.showMessage('error', '更新失败:' + error)
                             // 解析失败，reject Promise
@@ -1861,13 +3091,13 @@
                         this.doBatchReplaceTitle(requestOptions, keyword, content, lastProductUpdateTime, replaceingDialog)
                     }, 1000)
                 }
-            }else{
+            } else {
                 if (this.replaceTitleErrorList.length > 0) {
                     replaceingDialog.updateResults(this.replaceTitleErrorList)
                     replaceingDialog.showResults()
                     // 显示错误信息
                     UI.showMessage('error', '批量替换标题存在失败商品，请查看')
-                }else{
+                } else {
                     // 显示成功信息
                     UI.showMessage('success', '批量替换标题完成')
                 }
@@ -2028,7 +3258,7 @@
                         }
                         rowData.num = stockGetNum + ''
                         fc.root.emit()
-                        
+
                     } catch (error) {
                         console.error(`更新skuId:${code}库存失败:`, error)
                         UI.showMessage('error', `更新skuId:${code}库存失败`)
@@ -2046,10 +3276,15 @@
     }
 
     // ===============================
-    class ProductEditModule {
+    class ProductEditModule extends ModuleBase {
         static moduleId = 'productEditModule'
+        static moduleConfig = {
+            name: '商品编辑增强',
+            description: '增加批量设置商品编码功能'
+        }
 
         constructor() {
+            super()
         }
 
         init() {
@@ -2414,10 +3649,19 @@
     }
 
     // ========== 直播增强 ==========
-    class LiveModule {
+    class LiveModule extends ModuleBase {
         static moduleId = 'liveModule'
+        static moduleConfig = {
+            name: '直播列表增强',
+            description: '直播列表显示货号、自动讲解功能',
+            hasConfig: true,
+            configFields: [
+                { key: 'autoClickOn', label: '自动讲解', type: 'switch', defaultValue: false }
+            ]
+        }
 
         constructor(requestListenerManager) {
+            super()
             this.requestListenerManager = requestListenerManager
             this.autoClickOn = false
             this.productMap = new Map()
@@ -2433,7 +3677,7 @@
 
         init() {
             console.log('初始化直播增强功能')
-            this.autoClickOn = ConfigManager.getInstance().getModuleConfig('liveModule', 'autoClickOn', false)
+            this.autoClickOn = this.getConfig('autoClickOn', false)
             this.setupRequestListeners()
             this.createMonitor()
         }
@@ -2711,13 +3955,745 @@
 
     }
 
+    // ========== 直播数据登记 ===========
+    class LiveScreenModule extends ModuleBase {
+        static moduleId = 'liveScreenModule'
+        static moduleConfig = {
+            name: '直播大屏模块',
+            description: '直播大屏数据登记',
+            hasConfig: true,
+            configFields: [
+                { key: 'tableId', label: '数据文档ID', placeholder: '请输入数据文档ID' },
+                { key: 'conversationId', label: '通知群聊ID', placeholder: '请输入通知群聊ID' }
+            ]
+        }
+
+        constructor(requestListenerManager) {
+            super()
+            this.requestListenerManager = requestListenerManager
+            this.listeners = []
+            //核心数据
+            this.coreData = {}
+            //主播列表
+            this.anchorList = []
+            //主播数据列表
+            this.anchorDataList = []
+            //主播排班列表
+            this.anchorShiftList = []
+            //请求参数
+            this.requestParams = {}
+            console.log('=====直播大屏数据登记=====')
+        }
+
+        init() {
+            console.log('初始化直播大屏数据登记功能')
+            this.setCoreDataSelected()
+            this.setupRequestListeners()
+            //等待
+            Utils.waitForElementByXPath("//div[contains(@class,'container--') and contains(normalize-space(.), '主播分析')]", 5000).then(headerContainer => {
+                this.bindAnchorAnalysisListener()
+            })
+
+        }
+
+        destroy() {
+            console.log('销毁直播大屏数据登记模块')
+            // 清理请求监听器
+            this.listeners.forEach(listenerId => {
+                if (this.requestListenerManager) {
+                    this.requestListenerManager.removeListener(listenerId)
+                }
+            })
+            this.listeners = []
+
+            console.log('直播大屏数据登记模块已销毁')
+        }
+
+        // 设置核心数据选项
+        setCoreDataSelected() {
+            localStorage.setItem('COMPASS_LIVE_SCEEN_CORE_INDICATORS_COUPON_SHOP_HIT', '["stat_cost","real_refund_amt","gpm","avg_watch_duration","live_show_cnt","watch_ucnt","pay_ucnt","pay_combo_cnt","watch_cnt_show_ratio","watch_pay_ucnt_ratio","product_click_pay_ucnt_ratio","follow_anchor_ucnt"]')
+            localStorage.setItem('COMPASS_LIVE_SCEEN_CORE_INDICATORS_COUPON_SHOP-OFFICIAL_HIT', '["stat_cost","real_refund_amt","gpm","avg_watch_duration","live_show_cnt","watch_ucnt","pay_ucnt","pay_combo_cnt","live_show_watch_cnt_ratio","watch_pay_ucnt_ratio","product_click_pay_ucnt_ratio","follow_anchor_ucnt"]')
+        }
+
+        setupRequestListeners() {
+            // 监听直播商品请求
+            //如果当前页面url包含official，则是官方直播间
+            let liveCoreDataRegex = /\/compass_api\/shop\/live\/live_screen\/core_data/
+            let liveAnchorDataListRegex = /\/compass_api\/shop\/live\/live_screen\/anchor_lidar_detail/
+            if (window.location.href.includes('shop-official')) {
+                liveCoreDataRegex = /\/compass_api\/content_live\/shop_official\/live_screen\/core_data/
+                liveAnchorDataListRegex = /\/compass_api\/content_live\/shop_official\/live_screen\/anchor_lidar_detail/
+            }
+
+            const listenerId = this.requestListenerManager.addListener('liveCoreData', liveCoreDataRegex, (url, responseText) => {
+                setTimeout(() => {
+                    try {
+                        //从url中提取参数 转成对象
+                        this.requestParams = Object.fromEntries(new URLSearchParams(url.split('?')[1]))
+                        const data = JSON.parse(responseText).data
+                        const coreData = data?.core_data || []
+                        this.coreData = {
+                            "直播ID": this.requestParams.room_id,
+                            "直播间成交金额": Utils.formatNumber(data.pay_amt.value / 100),
+                            "投放消耗": Utils.formatNumber(coreData.find(item => item.index_name === 'stat_cost').value.value / 100),
+                            "退款金额": Utils.formatNumber(coreData.find(item => item.index_name === 'real_refund_amt').value.value / 100),
+                            "千次观看用户成交金额": Utils.formatNumber(coreData.find(item => item.index_name === 'gpm').value.value / 100),
+                            "人均观看时长": coreData.find(item => item.index_name === 'avg_watch_duration').value.value,
+                            "曝光次数": coreData.find(item => item.index_name === 'live_show_cnt').value.value,
+                            "累计观看人数": coreData.find(item => item.index_name === 'watch_ucnt').value.value,
+                            "成交人数": coreData.find(item => item.index_name === 'pay_ucnt').value.value,
+                            "成交件数": coreData.find(item => item.index_name === 'pay_combo_cnt').value.value,
+                            "曝光-观看率(次数)": Utils.formatNumber(coreData.find(item => item.index_display === '曝光-观看率(次数)').value.value * 100) + '%',
+                            "观看-成交率(人数)": Utils.formatNumber(coreData.find(item => item.index_name === 'watch_pay_ucnt_ratio').value.value * 100) + '%',
+                            "商品点击-成交率(人数)": Utils.formatNumber(coreData.find(item => item.index_name === 'product_click_pay_ucnt_ratio').value.value * 100) + '%',
+                            "新增粉丝数": coreData.find(item => item.index_name === 'follow_anchor_ucnt').value.value,
+                        }
+                        // console.log('更新直播大屏核心数据:', this.coreData)
+
+                    } catch (error) {
+                        console.error('解析直播大屏核心数据失败:', error)
+                    }
+                }, 500)
+            })
+            this.listeners.push(listenerId)
+
+            const anchorDataListenerId = this.requestListenerManager.addListener('liveAnchorDataList', liveAnchorDataListRegex, (url, responseText) => {
+                setTimeout(() => {
+                    try {
+                        const data = JSON.parse(responseText)
+                        // console.log("直播大屏主播个人数据:", data)
+                        const infoData = data.data?.info_list || []
+                        this.anchorDataList = infoData
+                    } catch (error) {
+                        console.error('解析直播大屏主播数据失败:', error)
+                    }
+                }, 500)
+            })
+            this.listeners.push(anchorDataListenerId)
+
+            const anchorShiftListenerId = this.requestListenerManager.addListener('liveAnchorShiftData', /\/compass_api\/shop\/live\/live_screen\/anchor_shift_list/, (url, responseText) => {
+                setTimeout(() => {
+                    try {
+                        const data = JSON.parse(responseText)
+                        // console.log("直播大屏主播排班数据:", data)
+                        this.anchorShiftList = data.data?.info_list || []
+                    } catch (error) {
+                        console.error('解析直播大屏主播排班数据失败:', error)
+                    }
+                }, 500)
+            })
+            this.listeners.push(anchorShiftListenerId)
+        }
+
+        bindAnchorAnalysisListener() {
+            const divs = document.querySelectorAll('div[class*="tab--"]:not([class*="active--"])');
+            divs.forEach(div => {
+                if (div.innerText.includes('主播分析')) {
+                    // 防止重复绑定
+                    if (div.__binded) return;
+                    div.__binded = true;
+                    div.addEventListener('click', (e) => {
+                        this.createReportBtn()
+                    });
+                }
+            });
+        }
+
+        createReportBtn() {
+            const existingBtn = document.getElementById('report-anchor-data-btn')
+            if (existingBtn) return
+            const reportBtn = document.createElement('button')
+            reportBtn.id = 'report-anchor-data-btn'
+            reportBtn.innerText = "登记主播数据"
+            // 合并样式
+            reportBtn.style.padding = '4px 10px'
+            reportBtn.style.marginRight = '10px'
+            reportBtn.style.backgroundColor = 'rgb(68 90 254)'
+            reportBtn.style.color = 'white'
+            reportBtn.style.border = 'none'
+            reportBtn.style.borderRadius = '3px'
+            reportBtn.style.cursor = 'pointer'
+            reportBtn.style.fontSize = '18px'
+            reportBtn.style.fontWeight = '400'
+            // 添加hover 样式
+            reportBtn.style.transition = 'background-color 0.3s ease'
+            reportBtn.addEventListener('mouseover', () => {
+                reportBtn.style.backgroundColor = 'rgb(44 68 243)'
+            })
+            reportBtn.addEventListener('mouseout', () => {
+                reportBtn.style.backgroundColor = 'rgb(68 90 254)'
+            })
+
+            reportBtn.addEventListener('click', async () => {
+                const modal = await this.showAnchorSelectModal()
+                modal.onSubmit(async (anchorValue, anchorName) => {
+                    // 提交数据
+                    await this.submitAnchorData(anchorName)
+                    modal.close()
+                })
+            })
+            //等待
+            Utils.waitForElementByXPath("//div[contains(@class,'content--')]//div[contains(@class,'container--')]//div[contains(@class,'control--')]", 5000).then(headerContainer => {
+                headerContainer.appendChild(reportBtn)
+            })
+        }
+
+        async showAnchorSelectModal() {
+            // 先获取主播列表
+            await this.getAnchorList()
+
+
+
+            // 创建遮罩层
+            const overlay = document.createElement('div');
+            overlay.id = 'anchor-select-modal-overlay';
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0px;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.6);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 100000;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            `;
+            // 添加旋转动画的CSS（确保动画可用）
+            const style = document.createElement('style');
+            style.id = 'anchor-select-modal-styles';
+            style.textContent = `
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            `;
+            document.head.appendChild(style);
+
+
+            // 创建弹窗容器
+            const modal = document.createElement('div');
+            modal.id = 'anchor-select-modal';
+            modal.style.cssText = `
+                background: rgb(58, 66, 88);
+                border-radius: 8px;
+                width: 300px;
+                max-width: 90%;
+                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+                overflow: visible;
+            `;
+
+            // 弹窗头部
+            const header = document.createElement('div');
+            header.style.cssText = `
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 5px 16px 5px 16px;
+                border-bottom: 1px solid #494f6b;
+            `;
+
+            const title = document.createElement('h3');
+            title.textContent = '选择当前主播';
+            title.style.cssText = `
+                margin: 0;
+                font-size: 15px;
+                font-weight: 600;
+                color: #f9fafb;
+            `;
+
+            const closeBtn = document.createElement('button');
+            closeBtn.innerHTML = '×';
+            closeBtn.style.cssText = `
+                background: none;
+                border: none;
+                color: #9ca3af;
+                font-size: 22px;
+                cursor: pointer;
+                padding: 0;
+                width: 28px;
+                height: 28px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 4px;
+                transition: all 0.2s;
+            `;
+            closeBtn.onmouseover = () => {
+                closeBtn.style.backgroundColor = '#374151';
+                closeBtn.style.color = '#f9fafb';
+            };
+            closeBtn.onmouseout = () => {
+                closeBtn.style.backgroundColor = 'transparent';
+                closeBtn.style.color = '#9ca3af';
+            };
+
+            header.appendChild(title);
+            header.appendChild(closeBtn);
+
+            // 弹窗内容
+            const content = document.createElement('div');
+            content.style.cssText = `
+                padding: 10px 16px;
+            `;
+            // 创建自定义下拉框容器
+            const customSelectContainer = document.createElement('div');
+            customSelectContainer.style.cssText = `
+                position: relative;
+                width: 100%;
+            `;
+
+            // 创建下拉框显示区域
+            const selectDisplay = document.createElement('div');
+            selectDisplay.style.cssText = `
+                width: 100%;
+                padding: 5px 10px;
+                background: #111827;
+                border: 1px solid #374151;
+                border-radius: 6px;
+                font-size: 15px;
+                color: #f9fafb;
+                cursor: pointer;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                box-sizing: border-box;
+            `;
+
+            // 选中的文本
+            const selectedText = document.createElement('span');
+            selectedText.textContent = '请选择主播';
+            selectedText.style.cssText = `
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            `;
+
+            // 下拉箭头
+            const arrow = document.createElement('span');
+            arrow.innerHTML = '▼';
+            arrow.style.cssText = `
+                font-size: 10px;
+                color: #9ca3af;
+                margin-left: 8px;
+                transition: transform 0.2s;
+            `;
+
+            selectDisplay.appendChild(selectedText);
+            selectDisplay.appendChild(arrow);
+
+            // 创建下拉选项列表
+            const optionsList = document.createElement('div');
+            optionsList.style.cssText = `
+                position: absolute;
+                top: 100%;
+                left: 0;
+                right: 0;
+                margin-top: 4px;
+                background: #1f2937;
+                border: 1px solid #374151;
+                border-radius: 6px;
+                max-height: 200px;
+                overflow-y: auto;
+                z-index: 100001;
+                display: none;
+                box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+                scrollbar-width: thin;
+                scrollbar-color: #4b5563 #1f2937;
+            `;
+
+            // 添加自定义滚动条样式
+            const scrollbarStyle = document.createElement('style');
+            scrollbarStyle.textContent = `
+                #anchor-select-options::-webkit-scrollbar {
+                    width: 6px;
+                }
+                #anchor-select-options::-webkit-scrollbar-track {
+                    background: #1f2937;
+                    border-radius: 3px;
+                }
+                #anchor-select-options::-webkit-scrollbar-thumb {
+                    background: #4b5563;
+                    border-radius: 3px;
+                }
+                #anchor-select-options::-webkit-scrollbar-thumb:hover {
+                    background: #6b7280;
+                }
+            `;
+            document.head.appendChild(scrollbarStyle);
+            optionsList.id = 'anchor-select-options';
+
+            // 存储当前选中的值
+            let selectedValue = '';
+            let selectedName = '';
+
+            // 创建选项的函数
+            const createOption = (value, text) => {
+                const option = document.createElement('div');
+                option.style.cssText = `
+                    padding: 8px 10px;
+                    font-size: 12px;
+                    color: #f9fafb;
+                    cursor: pointer;
+                    border-bottom: 1px solid #494f6b;
+                    transition: background-color 0.2s;
+                `;
+                option.textContent = text;
+                option.dataset.value = value;
+
+                option.addEventListener('mouseenter', () => {
+                    option.style.backgroundColor = '#374151';
+                });
+                option.addEventListener('mouseleave', () => {
+                    option.style.backgroundColor = 'transparent';
+                });
+                option.addEventListener('click', () => {
+                    selectedValue = value;
+                    selectedName = text;
+                    selectedText.textContent = text;
+                    optionsList.style.display = 'none';
+                    arrow.style.transform = 'rotate(0deg)';
+                    selectDisplay.style.borderColor = '#374151';
+                });
+
+                return option;
+            };
+
+            // 填充主播列表选项
+            let hasAnchor = false;
+            this.anchorList.forEach(anchor => {
+                const index = this.anchorDataList.findIndex(item => item.name === anchor.name);
+                if (index === -1) return;
+                hasAnchor = true;
+                const value = anchor.name;
+                const text = anchor.name;
+                optionsList.appendChild(createOption(value, text));
+            });
+            if (!hasAnchor) {
+                UI.showMessage("error", '请先配置主播排班信息');
+            }
+            // 添加"其它"选项
+            // optionsList.appendChild(createOption('other', '其它'));
+
+            // 点击显示区域展开/收起下拉列表
+            selectDisplay.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isOpen = optionsList.style.display === 'block';
+                if (isOpen) {
+                    optionsList.style.display = 'none';
+                    arrow.style.transform = 'rotate(0deg)';
+                    selectDisplay.style.borderColor = '#374151';
+                } else {
+                    optionsList.style.display = 'block';
+                    arrow.style.transform = 'rotate(180deg)';
+                    selectDisplay.style.borderColor = '#3b82f6';
+                }
+            });
+
+            // 点击外部关闭下拉列表
+            document.addEventListener('click', (e) => {
+                if (!customSelectContainer.contains(e.target)) {
+                    optionsList.style.display = 'none';
+                    arrow.style.transform = 'rotate(0deg)';
+                    selectDisplay.style.borderColor = '#374151';
+                }
+            });
+
+            customSelectContainer.appendChild(selectDisplay);
+            customSelectContainer.appendChild(optionsList);
+            content.appendChild(customSelectContainer);
+
+            // 弹窗底部
+            const footer = document.createElement('div');
+            footer.style.cssText = `
+                display: flex;
+                justify-content: space-between;
+                gap: 8px;
+                padding: 5px 16px 10px 16px;
+                border-top: 1px solid #374151;
+            `;
+
+            // 取消按钮
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = '取消';
+            cancelBtn.style.cssText = `
+                padding: 2px 10px;
+                background: transparent;
+                color: #9ca3af;
+                border: none;
+                border-radius: 3px;
+                font-size: 12px;
+                cursor: pointer;
+                transition: all 0.2s;
+            `;
+            cancelBtn.onmouseover = () => {
+                cancelBtn.style.backgroundColor = '#374151';
+                cancelBtn.style.color = '#f9fafb';
+            };
+            cancelBtn.onmouseout = () => {
+                cancelBtn.style.backgroundColor = 'transparent';
+                cancelBtn.style.color = '#9ca3af';
+            };
+
+            // 提交按钮
+            const submitBtn = document.createElement('button');
+            submitBtn.textContent = '提交';
+            submitBtn.style.cssText = `
+                padding: 2px 10px;
+                background: #3b82f6;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                font-size: 12px;
+                cursor: pointer;
+                transition: all 0.2s;
+            `;
+            submitBtn.onmouseover = () => {
+                submitBtn.style.backgroundColor = '#2563eb';
+            };
+            submitBtn.onmouseout = () => {
+                submitBtn.style.backgroundColor = '#3b82f6';
+            };
+            const tips = document.createElement('span');
+            tips.textContent = '请先配置主播排班信息';
+            tips.style.color = '#9ca3af';
+            tips.style.fontSize = '12px';
+            tips.style.width = '60%';
+            const spinner = document.createElement('span');
+            //spinner实现转圈加载动画
+            spinner.style.cssText = `
+                        display: inline-block;
+                        margin-left: 5px;
+                        width: 12px;
+                        height: 12px;
+                        border: 2px solid #f9fafb;
+                        border-top-color: transparent;
+                        border-radius: 50%;
+                        animation: spin 0.6s linear infinite;
+                    `;
+            footer.appendChild(tips);
+            tips.style.opacity = '0';
+            if (!hasAnchor) {
+                tips.style.opacity = '1';
+                submitBtn.style.cursor = 'not-allowed';
+                submitBtn.disabled = true;
+            }
+
+            footer.appendChild(cancelBtn);
+            footer.appendChild(submitBtn);
+
+            // 组装弹窗
+            modal.appendChild(header);
+            modal.appendChild(content);
+            modal.appendChild(footer);
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+
+            // 关闭弹窗函数
+            const closeModal = () => {
+                overlay.remove();
+            };
+
+            // 事件绑定
+            closeBtn.addEventListener('click', closeModal);
+            cancelBtn.addEventListener('click', closeModal);
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    closeModal();
+                }
+            });
+
+            submitBtn.addEventListener('click', () => {
+                if (selectedValue === '') {
+                    tips.textContent = '请选择主播';
+                    tips.style.opacity = '1';
+                    return
+                } else {
+                    tips.style.opacity = '0';
+                }
+                // 触发回调
+                try {
+                    if (this.onAnchorSelectedSubmit) {
+                        // tips 提示提交中， 增加转圈加载动画
+                        tips.textContent = '提交中...';
+                        tips.style.opacity = '1';
+                        tips.style.color = '#f9fafb';
+                        tips.appendChild(spinner);
+                        this.onAnchorSelectedSubmit(selectedValue, selectedName);
+                    }
+                } catch (error) {
+                    console.error('提交失败:', error);
+                    UI.showMessage('error', '提交失败:' + error.message);
+                    tips.textContent = '提交失败！';
+                    tips.style.opacity = '1';
+                    tips.style.color = '#f9fafb';
+                }
+            });
+
+            // 返回关闭方法和选择回调设置
+            return {
+                close: closeModal,
+                onSubmit: (callback) => {
+                    this.onAnchorSelectedSubmit = callback;
+                }
+            };
+        }
+
+        async getAnchorList() {
+            //模拟发送请求 
+            // 使用requestParams 构造请求链接
+            const url = "https://compass.jinritemai.com/compass_api/shop/live/live_screen/anchor_binding" +
+                "?room_id=" + this.requestParams.room_id +
+                "&_lid=" + this.requestParams._lid +
+                "&verifyFp=" + this.requestParams.verifyFp +
+                "&fp=" + this.requestParams.fp +
+                "&msToken=" + this.requestParams.msToken +
+                "&a_bogus=" + this.requestParams.a_bogus;
+            const res = await Utils.sendHttpRequest("GET", url)
+            this.anchorList = JSON.parse(res).data?.info_list || []
+        }
+
+        async submitAnchorData(anchorName) {
+            // 从后向前查找最后一个名字符合的主播
+            const anchorData = this.anchorDataList.slice().reverse().find(anchor => anchor.name === anchorName)
+            const anchorShiftData = this.anchorShiftList.slice().reverse().find(anchor => anchor.name === anchorName)
+            const startDate = Utils.formatTimestamp(anchorShiftData.live_start_ts * 1000, 'YYYY-MM-DD')
+            // 合并数据
+            const mergedData = {
+                "主播名称": anchorName,
+                "直播日期": startDate,
+                "开始时间": Utils.formatTimestamp(anchorShiftData.live_start_ts * 1000, 'HH:mm'),
+                "结束时间": Utils.formatTimestamp(anchorShiftData.live_end_ts * 1000, 'HH:mm'),
+                "直播时长": Utils.formatDuration(anchorData.duration),
+                "最高在线人数": anchorData.max_online_cnt.value,
+                "平均在线人数": Utils.formatNumber(anchorData.avg_online_cnt.value),
+                "用户支付金额": Utils.formatNumber(anchorData.pay_amt.value / 100),
+                ...this.coreData
+            }
+            this.screenshotAndSend(mergedData["主播名称"], startDate, mergedData["开始时间"], mergedData["结束时间"])
+            // 获取历史数据
+            const tableId = this.getConfig("tableId")
+            const conversationId = this.getConfig("conversationId")
+            if (!tableId || !conversationId) {
+                UI.showMessage("error", "请先检查模块参数，设置数据登记表格和通知群聊！")
+                return
+            }
+            console.log("tableId:", tableId)
+            const timestampParts = Utils.getTimestampParts(anchorShiftData.live_start_ts * 1000)
+            const sheetName = `${timestampParts.yearShort}年${timestampParts.month}月`
+            let sheetId = await DingTalkSDK.getSheetIdByName(tableId, sheetName)
+            if (!sheetId) {
+                console.error('未找到对应的工作表:', sheetName)
+                //创建工作表
+                sheetId = await this.initSheet(sheetName)
+            }
+            const findRes = await DingTalkSDK.findRowByColumnValue(tableId, sheetId, 'A', startDate, { format: 'date' })
+            const startRow = findRes?.rowIndex || 0
+            console.log('查询日期:', sheetName, startDate, startRow)
+            let writeRow = startRow
+            let writeData = mergedData
+            if (findRes.find) {
+                console.log('已存在数据:', findRes)
+                const range = await DingTalkSDK.getRange(tableId, sheetId, `A${startRow}:AA${startRow + 3}`)
+                const values = range.values
+                console.log('查询工作表:', values)
+                let sameLiveRoomIdLastRow = []
+                values.forEach((row, index) => {
+                    if (row[row.length - 1] === mergedData["直播ID"]) {
+                        sameLiveRoomIdLastRow = row
+                    }
+                    if (row[6] !== '') {
+                        writeRow = index + startRow + 1
+                    }
+                })
+                //已有当前直播的数据，说明前面已有排班主播，需要进行数据计算。
+                if (sameLiveRoomIdLastRow.length > 0) {
+                    writeData["直播间成交金额"] = mergedData["直播间成交金额"] - Number(sameLiveRoomIdLastRow[6])
+                    writeData["投放消耗"] = mergedData["投放消耗"] - Number(sameLiveRoomIdLastRow[9])
+                    writeData["退款金额"] = mergedData["退款金额"] - Number(sameLiveRoomIdLastRow[11])
+                    writeData["曝光次数"] = mergedData["曝光次数"] - Number(sameLiveRoomIdLastRow[15])
+                    writeData["累计观看人数"] = mergedData["累计观看人数"] - Number(sameLiveRoomIdLastRow[17])
+                    writeData["成交件数"] = mergedData["成交件数"] - Number(sameLiveRoomIdLastRow[18])
+                    writeData["成交人数"] = mergedData["成交人数"] - Number(sameLiveRoomIdLastRow[19])
+                    writeData["新增粉丝数"] = mergedData["新增粉丝数"] - Number(sameLiveRoomIdLastRow[23])
+                }
+            }
+            // writeData全部转换为字符串
+            for (const key in writeData) {
+                writeData[key] = writeData[key].toString()
+            }
+            const postData = {
+                "values": [
+                    [startDate, writeData["主播名称"], "旗舰店", "无", `${writeData["开始时间"]}-${writeData["结束时间"]}`, writeData["直播时长"], writeData["直播间成交金额"], writeData["用户支付金额"], writeData["退款金额"], writeData["投放消耗"], "", "", writeData["千次观看用户成交金额"], writeData["最高在线人数"], writeData["平均在线人数"],
+                        writeData["曝光次数"], writeData["曝光-观看率(次数)"], writeData["累计观看人数"], writeData["成交件数"], writeData["成交人数"], "", writeData["观看-成交率(人数)"], writeData["商品点击-成交率(人数)"], writeData["新增粉丝数"], writeData["人均观看时长"], '', writeData["直播ID"]]
+                ],
+            }
+            console.log('插入数据:', writeRow, postData)
+            const res = await DingTalkSDK.updateRange(tableId, sheetId, `A${writeRow}:AA${writeRow}`, postData)
+            console.log('插入数据结果:', res)
+            if (findRes.find) {
+                //合并单元格
+                const mergeResult = await DingTalkSDK.mergeRange(tableId, sheetId, `A${startRow}:A${writeRow}`, 'mergeAll')
+                console.log('合并结果:', mergeResult)
+            }
+            UI.showMessage("success", "主播数据登记成功！")
+        }
+
+        /**
+         * 初始化工作表
+         * @param {string} sheetName - 工作表名称
+         * @returns {Promise<string>} - 工作表ID
+         */
+        async initSheet(sheetName) {
+            const newSheet = await DingTalkSDK.createSheet(tableId, sheetName)
+            sheetId = newSheet.id
+            const header = ['日期', '主播', '账号', '中控', '直播时间', '直播时长', '直播间成交金额', '用户支付金额', '退款金额', '付费', 'ROI', '有效ROI', '千次观看成交金额', '最高在线人数', '平均在线人数',
+                '直播间曝光次数', '曝光观看率', '累计观看人数', '成交件数', '成交人数', '观看-成交率(计算)', '观看-成交率(最终)', '点击成交转化率（人数）', '涨粉数', '人均观看时长', 'UV价值', '直播ID']
+            const body = {
+                "values": [header],
+            }
+            await DingTalkSDK.updateRange(tableId, sheetId, 'A1:AA1', body)
+            return sheetId
+        }
+
+        /**
+         * 截图数据并发送到群聊
+         */
+        async screenshotAndSend(anchorName, date, startTime, endTime) {
+            const conversationId = this.getConfig("conversationId")
+            const canvas = await Utils.captureWithoutIds(document.documentElement, ['anchor-select-modal-overlay'])
+            canvas.toBlob(async imageBlob => {
+                console.log("截图成功，开始上传！");
+                const result = await DingTalkSDK.uploadMedia('image', imageBlob, 'image.jpg');
+                console.log("上传成功：", result);
+                const messageContent = `{"title":"直播数据截图","text": "【直播数据截图】 <br/> 主播：${anchorName} <br/> 时间：${date} ${startTime}-${endTime} ![image](${result.mediaId})"}`;
+                const groupMsg = await DingTalkSDK.sendGroupMessage({
+                    msgKey: 'sampleMarkdown',
+                    msgParam: messageContent,
+                    openConversationId: conversationId
+                });
+                console.log('截图发送成功:', groupMsg);
+            });
+        }
+    }
+
     // ========== 运营工具功能类 ==========
     // 竞店数据获取
-    class CompetingStoreDataModule {
+    class CompetingStoreDataModule extends ModuleBase {
         static moduleId = 'competingStoreData'
+        static moduleConfig = {
+            name: '竞店数据抓取',
+            description: '抓取竞店数据到飞书文档',
+            hasConfig: true,
+            configFields: [
+                { key: 'feishuDocId', label: '飞书文档ID', placeholder: '请输入飞书文档ID' }
+            ]
+        }
 
-        constructor(sheetToken, requestManager) {
-            this.sheetToken = sheetToken
+        constructor(requestManager) {
+            super()
+            this.sheetToken = this.getConfig("feishuDocId")
             this.requestManager = requestManager
             this.targetDataArr = [
                 {
@@ -2810,7 +4786,7 @@
                     return false
             }
             console.log('数据已采集完成', this.targetDataArr)
-            UI.addFloatingButton('采集数据', () => this.writeDataToFeiShuOnlineExcel(this.targetDataArr))
+            UI.addFloatingButton('采集数据', {}, () => this.writeDataToFeiShuOnlineExcel(this.targetDataArr))
         }
 
         listenTargetRequest() {
@@ -2999,11 +4975,20 @@
     }
 
     // 商品数据抓取
-    class ProductDataModule {
+    class ProductDataModule extends ModuleBase {
         static moduleId = 'productData'
+        static moduleConfig = {
+            name: '商品数据抓取',
+            description: '抓取商品数据到飞书文档',
+            hasConfig: true,
+            configFields: [
+                { key: 'feishuDocId', label: '飞书文档ID', placeholder: '请输入飞书文档ID' }
+            ]
+        }
 
-        constructor(sheetToken, requestManager = RequestManager) {
-            this.sheetToken = sheetToken
+        constructor(requestManager = RequestManager) {
+            super()
+            this.sheetToken = this.getConfig("feishuDocId")
             this.requestManager = requestManager
             this.productList = []
             this.date = ''
@@ -3144,11 +5129,16 @@
     }
 
     // 商品卡榜单增强
-    class ProductCardRankModule {
+    class ProductCardRankModule extends ModuleBase {
 
         static moduleId = 'productCardRankModule'
+        static moduleConfig = {
+            name: '商品卡榜单',
+            description: '商品卡榜单数据分析'
+        }
 
         constructor(requestManager) {
+            super()
             this.requestManager = requestManager
             this.rankList = []
             this.listeners = []
@@ -3205,10 +5195,21 @@
     }
 
     // 店铺榜单数据采集
-    class ShopRankModule {
+    class ShopRankModule extends ModuleBase {
         static moduleId = 'shopRankModule'
+        static moduleConfig = {
+            name: '罗盘竞店榜单',
+            description: '一键显示关注店铺排名，意见更新在线表格',
+            hasConfig: true,
+            configFields: [
+                { key: 'followShopNames', label: '关注店铺名称', placeholder: '多个店铺用逗号分隔' },
+                { key: 'feishuDocId', label: '飞书文档ID', placeholder: '请输入飞书文档ID' },
+                { key: 'feishuSheetId', label: '飞书工作表ID', placeholder: '请输入飞书工作表ID' }
+            ]
+        }
 
         constructor(requestManager) {
+            super()
             this.requestManager = requestManager
             this.isCollecting = false;
             this.listenerId = 'shop_rank_collector';
@@ -3220,7 +5221,7 @@
 
         init() {
             // 更新商品卡榜单模块的关注店铺配置
-            const followShopNames = ConfigManager.getInstance().getModuleConfig('shopRankModule', 'followShopNames')
+            const followShopNames = this.getConfig('followShopNames')
             if (!followShopNames || followShopNames.trim() === '') {
                 UI.showMessage('error', '请先配置关注店铺名称')
                 return
@@ -3230,7 +5231,7 @@
             }
             //等待ecom-spin-container元素出现
             Utils.waitForElementByXPath('//div[@class="ecom-spin-container"]', 5000).then(spinContainer => {
-                this.floatingButton = UI.addFloatingButton('采集关注店铺', () => {
+                this.floatingButton = UI.addFloatingButton('采集关注店铺', {}, () => {
                     this.floatingButton.disabled = true;
                     this.startCollecting()
                     this.floatingButton.innerText = '数据采集中...'
@@ -3257,7 +5258,7 @@
             this.isCollecting = true;
 
             // 更新商品卡榜单模块的关注店铺配置
-            const followShopNames = ConfigManager.getInstance().getModuleConfig('shopRankModule', 'followShopNames')
+            const followShopNames = this.getConfig('followShopNames')
             if (followShopNames) {
                 this.followShopNames = new Set(followShopNames.split(',').map(s => s.trim()).filter(s => s))
             }
@@ -3533,8 +5534,8 @@
                 syncOnlineExcelBtn.innerText = '更新中...'
 
                 FeishuAPI.checkInitialized()
-                const feishuDocId = ConfigManager.getInstance().getModuleConfig('shopRankModule', 'feishuDocId')
-                const feishuSheetId = ConfigManager.getInstance().getModuleConfig('shopRankModule', 'feishuSheetId')
+                const feishuDocId = this.getConfig('feishuDocId')
+                const feishuSheetId = this.getConfig('feishuSheetId')
                 if (!feishuDocId || feishuDocId.trim() === '' || !feishuSheetId || feishuSheetId.trim() === '') {
                     throw new Error('请先配置飞书文档ID和工作表ID')
                 }
@@ -3613,10 +5614,15 @@
     }
 
     // 千川素材分析页监听
-    class QianchuanMaterialModule {
+    class QianchuanMaterialModule extends ModuleBase {
         static moduleId = 'qianchuanMaterial'
+        static moduleConfig = {
+            name: '千川素材分析',
+            description: '千川广告素材分析功能'
+        }
 
         constructor(requestManager = RequestManager) {
+            super()
             this.requestManager = requestManager
             this.listeners = []
         }
@@ -3670,6 +5676,15 @@
                 appId: this.configManager.getGlobalConfig('feishuAppId'),
                 appSecret: this.configManager.getGlobalConfig('feishuAppSecret')
             })
+            if (this.configManager.getGlobalConfig('dingtalkAppKey')
+                && this.configManager.getGlobalConfig('dingtalkAppSecret')
+                && this.configManager.getGlobalConfig('dingtalkOperatorId')) {
+                DingTalkSDK.init(
+                    this.configManager.getGlobalConfig('dingtalkAppKey'),
+                    this.configManager.getGlobalConfig('dingtalkAppSecret'),
+                    this.configManager.getGlobalConfig('dingtalkOperatorId')
+                )
+            }
             // 初始化路由管理器
             this.setupRoutes()
             this.moduleManager.start()
@@ -3705,6 +5720,7 @@
                 {
                     priority: 0,
                     enabled: this.configManager.getModuleEnabled(ProductListModule.moduleId),
+                    moduleConfig: ProductListModule.moduleConfig,
                 }
             )
 
@@ -3727,6 +5743,7 @@
                 {
                     priority: 0,
                     enabled: this.configManager.getModuleEnabled(ProductEditModule.moduleId),
+                    moduleConfig: ProductEditModule.moduleConfig,
                 }
             )
 
@@ -3749,6 +5766,29 @@
                 {
                     priority: 0,
                     enabled: this.configManager.getModuleEnabled(LiveModule.moduleId),
+                    moduleConfig: LiveModule.moduleConfig,
+                }
+            )
+
+            // 直播大屏数据登记模块
+            this.moduleManager.registerModule(
+                LiveScreenModule.moduleId,
+                /\/screen\/live\/shop/,
+                () => {
+                    console.log('初始化直播大屏数据登记模块')
+                    const module = new LiveScreenModule(this.requestListenerManager)
+                    module.init()
+                    return module
+                },
+                (module) => {
+                    if (module && module.destroy) {
+                        module.destroy()
+                    }
+                },
+                {
+                    priority: 0,
+                    enabled: this.configManager.getModuleEnabled(LiveScreenModule.moduleId),
+                    moduleConfig: LiveScreenModule.moduleConfig,
                 }
             )
 
@@ -3758,7 +5798,7 @@
                 /compass\.jinritemai\.com\/shop\/chance\/rank-shop\/detail/,
                 () => {
                     console.log('初始化罗盘竞店数据模块')
-                    const module = new CompetingStoreDataModule(this.configManager.getModuleConfig('competingStoreData', 'documentId'), this.requestListenerManager)
+                    const module = new CompetingStoreDataModule(this.requestListenerManager)
                     module.init()
                     return module
                 },
@@ -3771,6 +5811,7 @@
                 {
                     priority: 0,
                     enabled: this.configManager.getModuleEnabled(CompetingStoreDataModule.moduleId),
+                    moduleConfig: CompetingStoreDataModule.moduleConfig,
                 }
             )
 
@@ -3793,6 +5834,7 @@
                 {
                     priority: 0,
                     enabled: this.configManager.getModuleEnabled(ShopRankModule.moduleId),
+                    moduleConfig: ShopRankModule.moduleConfig,
                 }
             )
 
@@ -3802,7 +5844,7 @@
                 /compass\.jinritemai\.com\/shop\/commodity\/product-list/,
                 () => {
                     console.log('初始化商品数据抓取模块')
-                    const module = new ProductDataModule(this.configManager.getModuleConfig('productData', 'documentId'), this.requestListenerManager)
+                    const module = new ProductDataModule(this.requestListenerManager)
                     module.init()
                     return module
                 },
@@ -3815,6 +5857,7 @@
                 {
                     priority: 0,
                     enabled: this.configManager.getModuleEnabled(ProductDataModule.moduleId),
+                    moduleConfig: ProductDataModule.moduleConfig,
                 }
             )
 
@@ -3837,6 +5880,7 @@
                 {
                     priority: 0,
                     enabled: this.configManager.getModuleEnabled(ProductCardRankModule.moduleId),
+                    moduleConfig: ProductCardRankModule.moduleConfig,
                 }
             )
 
@@ -3859,6 +5903,7 @@
                 {
                     priority: 0,
                     enabled: this.configManager.getModuleEnabled(QianchuanMaterialModule.moduleId),
+                    moduleConfig: QianchuanMaterialModule.moduleConfig,
                 }
             )
 
@@ -4268,11 +6313,11 @@
                 },
                 // 竞店数据模块配置
                 competingStoreData: {
-                    documentId: 'W84hsr7FchOkdVtzcPucwUp1nQh'
+                    documentId: ''
                 },
                 // 商品数据模块配置
                 productData: {
-                    documentId: 'LbsmsnCiihflHDtvnAWc6ITLn50'
+                    documentId: ''
                 }
             }
             this.config = this.deepClone(this.defaultConfig)
@@ -4459,60 +6504,17 @@
     class SettingsModal {
         constructor() {
             this.configManager = ConfigManager.getInstance()
+            this.moduleRegistry = ModuleRegistryManager.getInstance()
             this.modal = null
             this.isOpen = false
-            this.moduleConfigs = {
-                productListModule: {
-                    name: '商品列表增强',
-                    description: '增加商品货号显示、库存弹窗一件同步现货库存。'
-                },
-                productEditModule: {
-                    name: '商品编辑增强',
-                    description: '增加批量设置商品编码功能'
-                },
-                liveModule: {
-                    name: '直播列表增强',
-                    description: '直播列表显示货号、自动讲解功能',
-                    hasConfig: true,
-                    configFields: [
-                        { key: 'autoClickOn', label: '自动讲解', type: 'text', defaultValue: false }
-                    ]
-                },
-                competingStoreData: {
-                    name: '竞店数据抓取',
-                    description: '抓取竞店数据到飞书文档',
-                    hasConfig: true,
-                    configFields: [
-                        { key: 'feishuDocId', label: '飞书文档ID', placeholder: '请输入飞书文档ID' }
-                    ]
-                },
-                shopRankModule: {
-                    name: '罗盘竞店榜单',
-                    description: '一键显示关注店铺排名，意见更新在线表格',
-                    hasConfig: true,
-                    configFields: [
-                        { key: 'followShopNames', label: '关注店铺名称', placeholder: '多个店铺用逗号分隔' },
-                        { key: 'feishuDocId', label: '飞书文档ID', placeholder: '请输入飞书文档ID' },
-                        { key: 'feishuSheetId', label: '飞书工作表ID', placeholder: '请输入飞书工作表ID' }
-                    ]
-                },
-                productData: {
-                    name: '商品数据抓取',
-                    description: '抓取商品数据到飞书文档',
-                    hasConfig: true,
-                    configFields: [
-                        { key: 'feishuDocId', label: '飞书文档ID', placeholder: '请输入飞书文档ID' }
-                    ]
-                },
-                productCardRank: {
-                    name: '商品卡榜单',
-                    description: '商品卡榜单数据分析'
-                },
-                qianchuanMaterial: {
-                    name: '千川素材分析',
-                    description: '千川广告素材分析功能'
-                }
-            }
+        }
+
+        /**
+         * 获取模块配置（从ModuleRegistryManager获取）
+         * @returns {Object} - 以moduleId为键的模块配置对象
+         */
+        getModuleConfigs() {
+            return this.moduleRegistry.getAllModuleConfigs()
         }
 
         /**
@@ -4831,7 +6833,8 @@
          */
         getModulesPanelHTML() {
             let html = ''
-            for (const [moduleId, config] of Object.entries(this.moduleConfigs)) {
+            const moduleConfigs = this.getModuleConfigs()
+            for (const [moduleId, config] of Object.entries(moduleConfigs)) {
                 const enabled = this.configManager.getModuleEnabled(moduleId)
                 html += `
                         <div class="module-item" data-module="${moduleId}">
@@ -4855,7 +6858,7 @@
             for (const field of configFields) {
                 const value = this.configManager.getModuleConfig(moduleId, field.key) !== undefined ? this.configManager.getModuleConfig(moduleId, field.key) : field.defaultValue
                 const fieldType = field.type || 'text'
-                
+
                 html += `
                         <div class="config-field">
                             <label class="config-label">${field.label}</label>
@@ -4908,6 +6911,27 @@
                             data-global="feishuAppSecret"
                             placeholder="请输入飞书APP Secret"
                             value="${globalConfig.feishuAppSecret || ''}">
+                    </div>
+                    <div class="global-config-item">
+                        <label class="config-label">钉钉APP Key</label>
+                        <input type="text" class="config-input" 
+                            data-global="dingtalkAppKey"
+                            placeholder="请输入钉钉APP KEY"
+                            value="${globalConfig.dingtalkAppKey || ''}">
+                    </div>
+                    <div class="global-config-item">
+                        <label class="config-label">钉钉APP Secret</label>
+                        <input type="text" class="config-input" 
+                            data-global="dingtalkAppSecret"
+                            placeholder="请输入钉钉APP Secret"
+                            value="${globalConfig.dingtalkAppSecret || ''}">
+                    </div>
+                    <div class="global-config-item">
+                        <label class="config-label">钉钉OperatorId</label>
+                        <input type="text" class="config-input" 
+                            data-global="dingtalkOperatorId"
+                            placeholder="请输入钉钉OperatorId"
+                            value="${globalConfig.dingtalkOperatorId || ''}">
                     </div>
                     <div class="global-config-item">
                         <label class="config-label">聚水潭账号</label>
