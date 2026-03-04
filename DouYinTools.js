@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         抖店工具箱合并版-3.0.9
-// @version      3.0.9
+// @name         抖店工具箱合并版-3.1.0
+// @version      3.1.0
 // @description  抖店增强工具箱 网页功能增强
 // @author       xchen
 // @match        https://*.jinritemai.com/*
@@ -33,7 +33,7 @@
         /**
          * 发送HTTP请求
          */
-        sendHttpRequest(method, url, headers = {}, data = null) {
+        sendHttpRequest(method, url, headers = {}, data = null, withCredentials = false) {
             return new Promise((resolve, reject) => {
                 const defaultHeaders = {
                     'Content-Type': 'application/json',
@@ -53,11 +53,12 @@
                     }
                 }
                 // console.log(method, url, defaultHeaders, requestData)
-                GM_xmlhttpRequest({
+                const requestOptions = {
                     method: method,
                     url: url,
                     headers: defaultHeaders,
                     data: requestData,
+                    withCredentials: withCredentials,
                     onload: function (response) {
                         if (response.status === 200) {
                             resolve(response.responseText)
@@ -72,8 +73,44 @@
                         UI.showMessage('error', `Request error: ${error.error}`)
                         reject(new Error(`Request error: ${error}`))
                     }
-                })
+                }
+                if (withCredentials) {
+                    requestOptions.withCredentials = withCredentials
+                }
+                GM_xmlhttpRequest(requestOptions)
             })
+        },
+        /**
+         * 发送XMLHttpRequest请求
+         */
+        request(url, options = {}) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+
+                xhr.open(options.method || "GET", url, true);
+
+                if (options.withCredentials) {
+                    xhr.withCredentials = true;
+                }
+
+                if (options.headers) {
+                    Object.entries(options.headers).forEach(([k, v]) =>
+                        xhr.setRequestHeader(k, v)
+                    );
+                }
+
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        resolve(xhr.responseText);
+                    } else {
+                        reject(new Error(`HTTP ${xhr.status}`));
+                    }
+                };
+
+                xhr.onerror = () => reject(new Error("Network Error"));
+
+                xhr.send(options.body || null);
+            });
         },
 
         /**
@@ -290,7 +327,8 @@
 
                 createObserver().observe(element, observerConfig)
                 isObserving = true
-                console.log('Observe: 开始监听元素变化', element)
+                // console.log('Observe: 开始监听元素变化', element)
+                console.log('Observe: 开始监听元素变化')
             }
 
             const stopObserving = () => {
@@ -298,7 +336,8 @@
                     observer.disconnect()
                     clearTimeout(mutationTimeout)
                     isObserving = false
-                    console.log('Observe: 停止监听元素变化', element)
+                    // console.log('Observe: 停止监听元素变化', element)
+                    console.log('Observe: 停止监听元素变化')
                 }
             }
 
@@ -679,6 +718,85 @@
             });
 
             return canvas;
+        },
+
+        /**
+         * 将HTML字符串渲染截图转换为Blob对象
+         * @param {string} htmlString - 要转换的HTML字符串
+         * @param {Object} options - 配置选项
+         * @param {number} options.width - 截图宽度，默认为2000
+         * @param {number} options.scale - 缩放比例，默认为2
+         * @param {string} options.backgroundColor - 背景颜色，默认为"#ffffff"
+         * @returns {Promise<Blob>} - 转换后的Blob对象
+         * @description 将HTML字符串包装成完整HTML，包含样式，转换为SVG，再加载为图片，最后转换为Blob对象
+         */
+        async captureHtmlToBlob(htmlString, options = {}) {
+            const {
+                width = 2000,
+                scale = 2,
+                backgroundColor = "#ffffff"
+            } = options
+
+            // 1️⃣ 创建隐藏 iframe
+            const iframe = document.createElement("iframe")
+            iframe.style.position = "fixed"
+            iframe.style.left = "-10000px"
+            iframe.style.top = "0"
+            iframe.style.width = width + "px"
+            iframe.style.height = "1px"
+            iframe.style.visibility = "hidden"
+
+            document.body.appendChild(iframe)
+
+            // 2️⃣ 写入 HTML
+            const doc = iframe.contentDocument
+            doc.open()
+            doc.write(htmlString)
+            doc.close()
+
+            // 3️⃣ 等待渲染完成
+            await new Promise(resolve => {
+                iframe.onload = resolve
+            })
+
+            // 再等一帧，确保布局完成
+            await new Promise(r => requestAnimationFrame(r))
+
+            // 4️⃣ 获取真实高度
+            const body = iframe.contentDocument.body
+            const height = body.scrollHeight
+
+            iframe.style.height = height + "px"
+
+            // 5️⃣ 使用 html2canvas 截图
+            const canvas = await html2canvas(body, {
+                useCORS: true,
+                backgroundColor,
+                scale,
+                windowWidth: width,
+                windowHeight: height
+            })
+
+            // 6️⃣ 转 Blob
+            const blob = await new Promise(resolve =>
+                canvas.toBlob(resolve, "image/png")
+            )
+
+            // 7️⃣ 清理
+            document.body.removeChild(iframe)
+
+            return blob
+        },
+
+        /**
+         * 等待指定时间
+         * @param {number} ms - 等待时间（毫秒）
+         * @returns {Promise<void>}
+         * @example
+         * await Utils.sleep(1000) // 等待1秒
+         */
+        sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms))
         }
     }
 
@@ -710,11 +828,11 @@
         /**
          * 添加悬浮按钮
          */
-        addFloatingButton(text, style = {}, callback) {
+        addFloatingButton(params) {
             const button = document.createElement('button')
-            button.innerText = text
+            button.innerText = params.text
             // 合并样式
-
+            button.id = params.id || 'floating-button'
             button.style.position = 'fixed'
             button.style.bottom = '30px'
             button.style.right = '30px'
@@ -727,15 +845,181 @@
             button.style.cursor = 'pointer'
             button.style.fontSize = '16px'
             button.style.zIndex = '10000'
-            Object.assign(button.style, style)
-            document.body.appendChild(button)
-
-            button.addEventListener('click', () => {
-                callback()
-            })
-
+            Object.assign(button.style, params.style)
+            //等待网页加载完成
+            button.addEventListener('click', params.onClick)
+            try {
+                document.body.appendChild(button)
+            } catch (error) {
+                window.addEventListener('load', () => {
+                    document.body.appendChild(button)
+                })
+            }
             return button
         },
+
+        /**
+         * 显示 HTML 预览弹窗
+         * @param {string} htmlString - 要预览的 HTML 字符串
+         * @param {string} buttonText - 确认按钮文本
+         * @param {function} onAction - 确认操作回调
+         */
+        showHtmlPreviewModal(htmlString, buttonText = "执行操作", onAction) {
+            const old = document.getElementById("html-preview-overlay")
+            if (old) old.remove()
+
+            const originalOverflow = document.body.style.overflow
+            document.body.style.overflow = "hidden"
+
+            const overlay = document.createElement("div")
+            overlay.id = "html-preview-overlay"
+            Object.assign(overlay.style, {
+                position: "fixed",
+                inset: "0",
+                background: "rgba(0,0,0,0.6)",
+                zIndex: "999999",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center"
+            })
+
+            const modal = document.createElement("div")
+            Object.assign(modal.style, {
+                width: "90vw",
+                height: "90vh",
+                background: "#fff",
+                borderRadius: "12px",
+                overflow: "hidden",
+                position: "relative",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+                display: "flex",
+                flexDirection: "column"
+            })
+
+            function closeModal() {
+                overlay.remove()
+                document.body.style.overflow = originalOverflow
+                document.removeEventListener("keydown", escHandler)
+            }
+
+            function escHandler(e) {
+                if (e.key === "Escape") {
+                    closeModal()
+                }
+            }
+            document.addEventListener("keydown", escHandler)
+
+            const closeBtn = document.createElement("button")
+            closeBtn.innerText = "✕"
+            Object.assign(closeBtn.style, {
+                position: "absolute",
+                top: "10px",
+                right: "10px",
+                zIndex: "10",
+                background: "#000",
+                color: "#fff",
+                border: "none",
+                width: "32px",
+                height: "32px",
+                borderRadius: "50%",
+                cursor: "pointer"
+            })
+            closeBtn.onclick = closeModal
+
+            const iframe = document.createElement("iframe")
+            Object.assign(iframe.style, {
+                flex: "1",
+                width: "100%",
+                border: "none"
+            })
+            iframe.srcdoc = htmlString
+
+            const footer = document.createElement("div")
+            Object.assign(footer.style, {
+                padding: "12px",
+                borderTop: "1px solid #eee",
+                display: "flex",
+                justifyContent: "flex-end"
+            })
+
+            const actionBtn = document.createElement("button")
+            actionBtn.innerText = buttonText
+            Object.assign(actionBtn.style, {
+                padding: "8px 16px",
+                background: "#1677ff",
+                color: "#fff",
+                border: "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px"
+            })
+
+            // ===== 创建 spinner =====
+            const spinner = document.createElement("span")
+            Object.assign(spinner.style, {
+                width: "14px",
+                height: "14px",
+                border: "2px solid #fff",
+                borderTopColor: "transparent",
+                borderRadius: "50%",
+                display: "none",
+                animation: "modal-spin 0.8s linear infinite"
+            })
+
+            // 注入动画
+            const style = document.createElement("style")
+            style.innerHTML = `
+    @keyframes modal-spin {
+      to { transform: rotate(360deg); }
+    }
+  `
+            document.head.appendChild(style)
+
+            actionBtn.appendChild(spinner)
+
+            function setLoading(loading) {
+                if (loading) {
+                    spinner.style.display = "inline-block"
+                    actionBtn.disabled = true
+                    actionBtn.style.opacity = "0.7"
+                    actionBtn.style.cursor = "not-allowed"
+                } else {
+                    spinner.style.display = "none"
+                    actionBtn.disabled = false
+                    actionBtn.style.opacity = "1"
+                    actionBtn.style.cursor = "pointer"
+                }
+            }
+
+            actionBtn.onclick = () => {
+                if (typeof onAction === "function") {
+                    setLoading(true)
+
+                    onAction({
+                        iframe,
+                        close: closeModal,
+                        done: () => setLoading(false),
+                        setLoading
+                    })
+                }
+            }
+
+            footer.appendChild(actionBtn)
+
+            modal.appendChild(closeBtn)
+            modal.appendChild(iframe)
+            modal.appendChild(footer)
+            overlay.appendChild(modal)
+            document.body.appendChild(overlay)
+
+            overlay.addEventListener("click", (e) => {
+                if (e.target === overlay) {
+                    closeModal()
+                }
+            })
+        }
 
     }
 
@@ -2082,7 +2366,7 @@
          * @param {Function} moduleFactory - 模块工厂函数
          * @param {Function} cleanupCallback - 清理回调函数
          * @param {Object} options - 可选配置 { priority: 优先级(数字越大优先级越高), enabled: 是否启用(默认true), moduleConfig: 模块配置对象 }
-         * @param {Object} options.moduleConfig - 模块配置对象 { name: 模块名称, description: 模块描述, hasConfig: 是否有配置, configFields: 配置字段数组 }
+         * @param {Object} options.moduleConfig - 模块配置对象 { name: 模块名称, description: 模块描述, configFields: 配置字段数组 }
          */
         registerModule(moduleId, urlPattern, moduleFactory, cleanupCallback, options = {}) {
             const moduleEntry = {
@@ -2130,6 +2414,11 @@
         getModuleConfig(moduleId) {
             const moduleEntry = this.modules.get(moduleId)
             return moduleEntry ? moduleEntry.moduleConfig : null
+        }
+        //获取模块是否启用
+        getModuleEnabled(moduleId) {
+            const moduleConfig = this.modules.get(moduleId)
+            return moduleConfig ? moduleConfig.enabled : false
         }
 
         /**
@@ -2514,7 +2803,6 @@
          * static moduleConfig = {
          *     name: '模块名称',
          *     description: '模块描述',
-         *     hasConfig: true,
          *     configFields: [
          *         { key: 'fieldKey', label: '字段标签', type: 'text', placeholder: '提示文本' }
          *     ]
@@ -3275,6 +3563,438 @@
         /* ================= 插件：设置库存编辑插件 END ========================== */
     }
 
+    // ========== 直播库存预览模块 ==========
+    class LiveProductStockPreviewModule extends ModuleBase {
+        static moduleId = 'liveProductStockPreviewModule'
+        static moduleConfig = {
+            name: '直播预告功能',
+            description: '一键查询前10链接库存，一键发送直播预告消息',
+            configFields: [
+                { key: 'topn', label: '查询前N条', placeholder: '请输入查询前N条' },
+                { key: 'conversationId', label: '通知群聊ID', placeholder: '请输入通知群聊ID' }
+            ]
+        }
+
+        // 视图构建工具
+        static ViewHtmlBuildUtils = {
+            escapeHtml(str) {
+                return String(str ?? '')
+                    .replaceAll('&', '&amp;')
+                    .replaceAll('<', '&lt;')
+                    .replaceAll('>', '&gt;')
+                    .replaceAll('"', '&quot;')
+                    .replaceAll("'", '&#39;');
+            },
+
+            mobile: {
+                getCellData(product, color, size) {
+                    const colorCode = product['颜色编码']?.[color] || '';
+                    const sku = `${colorCode}${size}`;
+                    const row = product['库存']?.[color]?.[sku] || {};
+                    return {
+                        available: row['在仓可用库存'],
+                        transit: row['采购在途库存']
+                    };
+                },
+
+                buildInventoryMarkup(products) {
+                    return `<main class="page">${(products || []).map((product, index) => {
+                        const sizes = product['鞋码大小'] || [];
+                        const colors = Object.keys(product['库存'] || {});
+
+                        const headerCells = colors.map((c) => `<th>${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(c)}</th>`).join('');
+                        const rows = sizes.map((size) => {
+                            const colorCells = colors.map((color) => {
+                                const { available, transit } = this.getCellData(product, color, size);
+                                if (available === undefined && transit === undefined) {
+                                    return '<td class="empty">-</td>';
+                                }
+                                const cls = available < 0 ? 'neg' : (available === 0 ? 'zero' : 'ok');
+                                return `<td><div class="${cls}"><div class="main">${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(available)}</div><div class="sub">途:${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(transit)}</div></div></td>`;
+                            }).join('');
+                            return `<tr><td class="size-col">${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(size)}</td>${colorCells}</tr>`;
+                        }).join('');
+
+                        const chips = (product['发货时效'] || []).map((i) => `<span class="chip">${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(i)}</span>`).join('');
+
+                        return `
+                            <section class="product">
+                            <div class="product-top">
+                                <img src="${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(product['图片'])}" alt="${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(product['货号'])}" />
+                                <div class="meta">
+                                <span class="chip"><b>${index + 1}号链接：${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(product['货号'] || '-')}</b></span><br>
+                                <span class="chip">券后价：<b>${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(product['价格'] || '-')}</b></span><br>
+                                ${chips}
+                                </div>
+                            </div>
+                            <div class="stock-wrap">
+                                <table>
+                                <thead><tr><th class="size-col">尺码</th>${headerCells}</tr></thead>
+                                <tbody>${rows}</tbody>
+                                </table>
+                            </div>
+                            </section>
+                        `;
+                    }).join('')}</main>`;
+                },
+
+                /**
+                 * 一键生成完整 HTML 代码
+                 * @param {Array<object>} products JSON数组
+                 * @returns {string} 完整HTML文本
+                 */
+                generateCompleteHtmlCode(products) {
+                    const BASE_STYLE = `
+                                    :root{--bg:#f3f4f6;--card:#fff;--line:#e5e7eb;--text:#111827;--muted:#6b7280;--ok:#16a34a;--zero:#a16207;--neg:#dc2626}
+                                    *{box-sizing:border-box}
+                                    body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;font-size:12px;padding:8px}
+                                    .page{max-width:430px;margin:0 auto;display:grid;gap:10px}
+                                    .product{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+                                    .product-top{padding:10px;border-bottom:1px solid var(--line);display:grid;grid-template-columns:92px 1fr;gap:10px;align-items:start}
+                                    .product-top img{width:92px;height:92px;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:#fff}
+                                    .chip{display:inline-block;border:1px solid var(--line);background:#fff;border-radius:999px;padding:2px 8px;margin:0 6px 6px 0;font-size:12px;line-height:1.4}
+                                    .meta b{font-size:14px}
+                                    .stock-wrap{overflow:auto;}
+                                    table{border-collapse:collapse;min-width:100%;width:max-content;font-size:11px}
+                                    th,td{border:1px solid var(--line);text-align:center;line-height:1.2}
+                                    thead th{background:#eef2ff;white-space: normal;width: 15px;word-break: break-all;}
+                                    .size-col{background:#fff;font-weight:600}
+                                    thead .size-col{background:#e5e7eb}
+                                    .main{font-weight:700}.sub{font-size:10px;color:var(--muted);margin: auto;width: 25px;}
+                                    .ok .main{color:var(--ok)} .zero .main{color:var(--zero)} .neg .main{color:var(--neg)} .empty{color:#9ca3af}
+                                `;
+                    const bodyHtml = this.buildInventoryMarkup(products);
+                    return `<!doctype html>
+                        <html lang="zh-CN">
+                        <head>
+                        <meta charset="UTF-8" />
+                        <meta name="viewport" content="width=device-width,initial-scale=1" />
+                        <title>移动端库存看板</title>
+                        <style>${BASE_STYLE}</style>
+                        </head>
+                        <body>
+                        ${bodyHtml}
+                        </body>
+                        </html>`;
+                }
+            },
+
+            pc: {
+                buildInventoryMarkup(products) {
+                    return `<main class="page">${products.map((product, index) => {
+                        const sizes = product['鞋码大小'] || [];
+                        const colorStocks = product['库存'] || {};
+                        const colors = Object.keys(colorStocks);
+
+                        const rows = colors.map((color) => {
+                            const code = product['颜色编码']?.[color] || '';
+                            const cells = sizes.map((size) => {
+                                const sku = `${code}${size}`;
+                                const row = colorStocks?.[color]?.[sku] || {};
+                                const a = row['在仓可用库存'];
+                                const t = row['采购在途库存'];
+                                if (a === undefined && t === undefined) return '<td class="empty">-</td>';
+                                const cls = a < 0 ? 'neg' : (a === 0 ? 'zero' : 'ok');
+                                return `<td><div class="${cls}"><div class="main">${a}</div><div class="sub">在途:${t}</div></div></td>`;
+                            }).join('');
+                            return `<tr><td class="first">${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(color)}<br><span class="sub">${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(code)}</span></td>${cells}</tr>`;
+                        }).join('');
+
+                        return `
+                            <section class="product">
+                            <aside class="left">
+                                <img src="${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(product['图片'] || '')}" alt="${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(product['货号'] || '')}" />
+                                <div class="meta">
+                                <span class="chip"><b>${index + 1}号链接：${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(product['货号'] || '-')}</b></span><br>
+                                <span class = "chip" style="font-size:12px;">ID:${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(product['id'] || '-')}</span><br>
+                                <div class="chip">价格：<b>${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(product['价格'] || '-')}</b></div><br>
+                                ${(product['发货时效'] || []).map((item) => `<span class="chip">${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(item)}</span>`).join('')}
+                                </div>
+                            </aside>
+                            <div class="right">
+                                <table>
+                                <thead><tr><th class="first">颜色/尺码</th>${sizes.map((s) => `<th>${LiveProductStockPreviewModule.ViewHtmlBuildUtils.escapeHtml(s)}</th>`).join('')}</tr></thead>
+                                <tbody>${rows}</tbody>
+                                </table>
+                            </div>
+                            </section>
+                        `;
+                    }).join('')}</main>`;
+                },
+                /**
+                 * 一键生成完整 HTML 代码
+                 * @param {Array<object>} products JSON数组
+                 * @returns {string} 完整HTML文本
+                 */
+                generateCompleteHtmlCode(products) {
+                    const BASE_STYLE = `
+                        :root{--bg:#f3f4f6;--card:#fff;--line:#e5e7eb;--text:#111827;--muted:#6b7280;--ok:#16a34a;--zero:#a16207;--neg:#dc2626}
+                        *{box-sizing:border-box}
+                        body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;font-size:12px;padding:8px}
+                        .page{margin:0 auto;display:grid;gap:8px}
+                        .product{display:grid;grid-template-columns:275px 1fr;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+                        .left{border-right:1px solid var(--line);padding:8px;display:grid;grid-template-columns:100px auto;gap:8px;align-content:start;background:#fafafa}
+                        .left img{width:100%;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:#fff}
+                        .chip{border:1px solid var(--line);border-radius:999px;padding:2px 8px;margin:0 4px 4px 0;display:inline-block;white-space:nowrap;background:#fff}
+                        .meta b{font-size:14px}.right{padding:8px;overflow:auto}
+                        table{border-collapse:collapse;min-width:100%;width:max-content;font-size:11px}
+                        th,td{border:1px solid var(--line);padding:3px 5px;text-align:center;white-space:nowrap;line-height:1.2}
+                        thead th{background:#eef2ff}
+                        .first{background:#fff;text-align:left}
+                        thead .first{background:#e5e7eb}
+                        .main{font-weight:700}.sub{font-size:11px;}.ok .main{color:var(--ok)}.zero .main{color:var(--zero)}.neg .main{color:var(--neg)}.empty{color:#9ca3af}
+                    `;
+                    const bodyHtml = this.buildInventoryMarkup(products);
+                    return `<!doctype html>
+                        <html lang="zh-CN">
+                        <head>
+                        <meta charset="UTF-8" />
+                        <meta name="viewport" content="width=device-width,initial-scale=1" />
+                        <title>商品库存紧凑看板</title>
+                        <style>${BASE_STYLE}</style>
+                        </head>
+                        <body>
+                        ${bodyHtml}
+                        </body>
+                        </html>`;
+                }
+            }
+
+        }
+
+        constructor(requestListenerManager) {
+            super()
+            this.requestListenerManager = requestListenerManager
+            this.listeners = []
+            this.topNProductMap = new Map()
+            this.productInfosWithStock = null
+            this.productInfosUpdateTime = 0
+            this.requestParams = null
+            this.livePreviewButton = null
+            this.topn = this.getConfig("topn", 5)
+        }
+
+        init() {
+            this.setupRequestListeners()
+        }
+
+        destroy() {
+            console.log('销毁商品库存快速获取模块')
+            // 清理请求监听器
+            this.listeners.forEach(listenerId => {
+                if (this.requestListenerManager) {
+                    this.requestListenerManager.removeListener(listenerId)
+                }
+            })
+            this.listeners = []
+            console.log('商品库存快速获取模块已销毁')
+        }
+
+        setupRequestListeners() {
+            // 监听直播商品请求
+            const listenerId = this.requestListenerManager.addListener('livePreviewProducts', /\/api\/anchor\/livepc\/promotions_v2\?list_type=1&source_type=force/, (url, responseText) => {
+                setTimeout(() => {
+                    try {
+                        const liveProducts = JSON.parse(responseText)
+                        liveProducts.data?.promotions?.slice(0, this.topn).forEach(product => {
+                            //保留两位小数
+                            const minPrice = (product.price_desc.min_price.origin / 100).toFixed(2)
+                            const maxPrice = (product.price_desc.max_price.origin / 100).toFixed(2)
+                            this.topNProductMap.set(product.product_id, `${minPrice}~${maxPrice}`)
+                        })
+                        if (this.livePreviewButton == null) {
+                            this.livePreviewButton = this.createUI()
+                        }
+                    } catch (error) {
+                        console.error('解析直播商品数据失败:', error)
+                    }
+                }, 500)
+            })
+            this.listeners.push(listenerId)
+        }
+
+        createUI() {
+            return UI.addFloatingButton({
+                id: 'send-live-preview-button',
+                text: `查询前${this.topn}库存`,
+                onClick: () => this.buildLiveProductStockPreview()
+            })
+        }
+
+        // 构建直播商品库存预览
+        async buildLiveProductStockPreview() {
+            if (this.topNProductMap.size === 0) {
+                console.error('直播商品数据为空')
+                UI.showMessage('error', `直播商品数据为空`)
+                return
+            }
+            const productIdSet = new Set(this.topNProductMap.keys())
+            if (this.productInfosWithStock === null 
+                || this.productInfosUpdateTime === 0 
+                || Date.now() - this.productInfosUpdateTime > 10 * 60 * 1000
+                || (() => {const productIdsInStock = new Set(this.productInfosWithStock.map(info => info["id"]));
+                const productIdsToUpdate = new Set([...productIdSet].filter(id => !productIdsInStock.has(id)));
+                return productIdsToUpdate.size !== 0})()) {
+                const productInfos = await this.getProductInfo(productIdSet)
+                if (!productInfos || productInfos.length === 0) {
+                    console.error('获取到的商品信息为空')
+                    UI.showMessage('error', `获取到的商品信息为空`)
+                    return
+                }
+                productInfos.forEach(info => {
+                    info["价格"] = this.topNProductMap.get(info["id"])
+                })
+                this.productInfosWithStock = await this.getProductStock(productInfos)
+                this.productInfosUpdateTime = Date.now()
+            }
+            const pcHtml = LiveProductStockPreviewModule.ViewHtmlBuildUtils.pc.generateCompleteHtmlCode(this.productInfosWithStock)
+            UI.showHtmlPreviewModal(pcHtml, "发送直播预告", async ({ iframe, done, close }) => {
+                const mobileHtml = LiveProductStockPreviewModule.ViewHtmlBuildUtils.mobile.generateCompleteHtmlCode(this.productInfosWithStock)
+                await this.screenshotAndSend(mobileHtml)
+                done()
+            })
+        }
+
+        //获取产品信息
+        async getProductInfo(productIdSet) {
+            const productInfo = []
+            for (const productId of productIdSet) {
+                const url = "/product/tproduct/previewOnline?" +
+                    "product_id=" + productId +
+                    "&need_live_status=false&appid=1";
+                try {
+                    const productInfoResponse = await Utils.request(url, {
+                        method: "GET",
+                        withCredentials: true
+                    })
+                    const productInfoJson = JSON.parse(productInfoResponse)
+                    productInfo.push(this.parseProductData(productInfoJson))
+                } catch (err) {
+                    console.error("请求失败:", err);
+                }
+            }
+            return productInfo;
+        }
+
+        // 获取商品库存
+        async getProductStock(productInfos) {
+            //收集skuid
+            const codeSet = new Set();
+            productInfos.forEach(info => {
+                const codes = Object.values(info["颜色编码"]).map(code => code.slice(0, -2))
+                codes.forEach(code => codeSet.add(code))
+            })
+            const stockMap = await JuShuiTanTool.getInstance().getProductInventoryDetail(Array.from(codeSet))
+            if (!stockMap || stockMap.size === 0) {
+                console.error('获取到的库存数据为空')
+                UI.showMessage('error', `获取到的库存数据为空`)
+                return
+            }
+            productInfos.forEach(info => {
+                info["库存"] = {}
+                for (const [color, code] of Object.entries(info["颜色编码"])) {
+                    info["库存"][color] = {}
+                    info["鞋码大小"].forEach(size => {
+                        const skuid = code + size
+                        info["库存"][color][skuid] = stockMap.get(skuid) || {}
+                    })
+                }
+            })
+            return productInfos;
+        }
+
+        /**
+         * 截图数据并发送到群聊
+         */
+        async screenshotAndSend(html) {
+            const conversationId = this.getConfig("conversationId")
+            
+            //通过html构造canvas
+            const imageBlob = await Utils.captureHtmlToBlob(html, {
+                width: 430
+            })
+            console.log("截图成功，开始上传！");
+            const result = await DingTalkSDK.uploadMedia('image', imageBlob, 'image.jpg');
+            console.log("上传成功：", result);
+            //获取明天日期字符串
+            const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
+            const day = String(tomorrow.getDate()).padStart(2, '0');
+            const tomorrowDate = `${month}月-${day}日`;
+            const messageContent = `{"title":"明日直播预告","text": "【${tomorrowDate}直播预告】![image](${result.mediaId})"}`;
+            const groupMsg = await DingTalkSDK.sendGroupMessage({
+                msgKey: 'sampleMarkdown',
+                msgParam: messageContent,
+                openConversationId: conversationId
+            });
+            console.log('截图发送成功:', groupMsg);
+        }
+
+        // 解析商品数据
+        parseProductData(data) {
+            const productData = data.data || data;
+
+            const result = {
+                "id": productData.product_id,
+                "标题": productData.name,
+                "图片": productData.img,
+                "货号": productData.product_format["货号"],
+                "发货时效": [],
+                "颜色编码": {}
+            };
+            if (result["货号"].startsWith("TM") && result["货号"].endsWith("QT")) {
+                //去除开头和结尾的TM和QT
+                result["货号"] = result["货号"].substring(2, result["货号"].length - 2);
+            }
+
+            let specSeqInfo = null;
+            try {
+                const extra = JSON.parse(productData.extra);
+                specSeqInfo = extra.spec_seq_info;
+            } catch (e) {
+                console.error('解析extra字段失败:', e);
+            }
+
+            if (specSeqInfo && specSeqInfo.spec_values_seq && specSeqInfo.spec_values_seq.length >= 3) {
+                result.发货时效 = specSeqInfo.spec_values_seq[2];
+            } else {
+                result.发货时效 = ["48小时内发货"];
+            }
+
+            const colors = specSeqInfo && specSeqInfo.spec_values_seq[0] ? specSeqInfo.spec_values_seq[0] : [];
+            const sizes = specSeqInfo && specSeqInfo.spec_values_seq[1] ? specSeqInfo.spec_values_seq[1] : [];
+            result.鞋码大小 = sizes;
+
+
+            if (productData.spec_prices && Array.isArray(productData.spec_prices)) {
+                productData.spec_prices.forEach(specPrice => {
+                    if (specPrice.sell_properties && Array.isArray(specPrice.sell_properties)) {
+                        let color = null;
+                        specPrice.sell_properties.forEach(prop => {
+                            if (prop.property_name === '颜色分类') {
+                                color = prop.value_name;
+                            }
+                        });
+                        if (result.颜色编码[color]) {
+                            return;
+                        }
+                        let cleanCode = '';
+                        if (specPrice.code) {
+                            cleanCode = specPrice.code.replace(/[+=]+$/, '');
+                            //去除最后两位，因为最后两位是尺码
+                            cleanCode = cleanCode.slice(0, -2);
+                        }
+
+                        if (color) {
+                            result.颜色编码[color] = cleanCode;
+                        }
+                    }
+                });
+            }
+            return result;
+        }
+    }
+
     // ===============================
     class ProductEditModule extends ModuleBase {
         static moduleId = 'productEditModule'
@@ -3654,7 +4374,6 @@
         static moduleConfig = {
             name: '直播列表增强',
             description: '直播列表显示货号、自动讲解功能',
-            hasConfig: true,
             configFields: [
                 { key: 'autoClickOn', label: '自动讲解', type: 'switch', defaultValue: false }
             ]
@@ -3961,7 +4680,6 @@
         static moduleConfig = {
             name: '直播大屏模块',
             description: '直播大屏数据登记',
-            hasConfig: true,
             configFields: [
                 { key: 'tableId', label: '数据文档ID', placeholder: '请输入数据文档ID' },
                 { key: 'conversationId', label: '通知群聊ID', placeholder: '请输入通知群聊ID' }
@@ -4685,7 +5403,6 @@
         static moduleConfig = {
             name: '竞店数据抓取',
             description: '抓取竞店数据到飞书文档',
-            hasConfig: true,
             configFields: [
                 { key: 'feishuDocId', label: '飞书文档ID', placeholder: '请输入飞书文档ID' }
             ]
@@ -4786,7 +5503,11 @@
                     return false
             }
             console.log('数据已采集完成', this.targetDataArr)
-            UI.addFloatingButton('采集数据', {}, () => this.writeDataToFeiShuOnlineExcel(this.targetDataArr))
+            UI.addFloatingButton({
+                text: '采集数据',
+                style: {},
+                onClick: () => this.writeDataToFeiShuOnlineExcel(this.targetDataArr)
+            })
         }
 
         listenTargetRequest() {
@@ -4980,7 +5701,6 @@
         static moduleConfig = {
             name: '商品数据抓取',
             description: '抓取商品数据到飞书文档',
-            hasConfig: true,
             configFields: [
                 { key: 'feishuDocId', label: '飞书文档ID', placeholder: '请输入飞书文档ID' }
             ]
@@ -5200,7 +5920,6 @@
         static moduleConfig = {
             name: '罗盘竞店榜单',
             description: '一键显示关注店铺排名，意见更新在线表格',
-            hasConfig: true,
             configFields: [
                 { key: 'followShopNames', label: '关注店铺名称', placeholder: '多个店铺用逗号分隔' },
                 { key: 'feishuDocId', label: '飞书文档ID', placeholder: '请输入飞书文档ID' },
@@ -5231,12 +5950,16 @@
             }
             //等待ecom-spin-container元素出现
             Utils.waitForElementByXPath('//div[@class="ecom-spin-container"]', 5000).then(spinContainer => {
-                this.floatingButton = UI.addFloatingButton('采集关注店铺', {}, () => {
-                    this.floatingButton.disabled = true;
-                    this.startCollecting()
-                    this.floatingButton.innerText = '数据采集中...'
-                    // 按钮颜色变成不可点击的颜色
-                    this.floatingButton.style.backgroundColor = '#cccccc';
+                this.floatingButton = UI.addFloatingButton({
+                    text: '采集关注店铺',
+                    style: {},
+                    onClick: () => {
+                        this.floatingButton.disabled = true;
+                        this.startCollecting()
+                        this.floatingButton.innerText = '数据采集中...'
+                        // 按钮颜色变成不可点击的颜色
+                        this.floatingButton.style.backgroundColor = '#cccccc';
+                    }
                 });
             })
         }
@@ -5723,6 +6446,28 @@
                     moduleConfig: ProductListModule.moduleConfig,
                 }
             )
+            //商品库存快速获取模块
+            this.moduleManager.registerModule(
+                LiveProductStockPreviewModule.moduleId,
+                /fxg\.jinritemai\.com\/ffa\/content-tool\/live\/control/,
+                () => {
+                    console.log('初始化商品库存快速获取模块')
+                    const module = new LiveProductStockPreviewModule(this.requestListenerManager)
+                    module.init()
+                    return module
+                },
+                (module) => {
+                    console.log('清理商品库存快速获取模块')
+                    if (module && module.destroy) {
+                        module.destroy()
+                    }
+                },
+                {
+                    priority: 1,
+                    enabled: this.configManager.getModuleEnabled(LiveProductStockPreviewModule.moduleId, false),
+                    moduleConfig: LiveProductStockPreviewModule.moduleConfig,
+                }
+            )
 
             // 注册商品编辑增强模块
             this.moduleManager.registerModule(
@@ -5839,27 +6584,27 @@
             )
 
             // 商品数据抓取页面模块
-            this.moduleManager.registerModule(
-                ProductDataModule.moduleId,
-                /compass\.jinritemai\.com\/shop\/commodity\/product-list/,
-                () => {
-                    console.log('初始化商品数据抓取模块')
-                    const module = new ProductDataModule(this.requestListenerManager)
-                    module.init()
-                    return module
-                },
-                (module) => {
-                    console.log('清理商品数据抓取模块')
-                    if (module && module.destroy) {
-                        module.destroy()
-                    }
-                },
-                {
-                    priority: 0,
-                    enabled: this.configManager.getModuleEnabled(ProductDataModule.moduleId),
-                    moduleConfig: ProductDataModule.moduleConfig,
-                }
-            )
+            // this.moduleManager.registerModule(
+            //     ProductDataModule.moduleId,
+            //     /compass\.jinritemai\.com\/shop\/commodity\/product-list/,
+            //     () => {
+            //         console.log('初始化商品数据抓取模块')
+            //         const module = new ProductDataModule(this.requestListenerManager)
+            //         module.init()
+            //         return module
+            //     },
+            //     (module) => {
+            //         console.log('清理商品数据抓取模块')
+            //         if (module && module.destroy) {
+            //             module.destroy()
+            //         }
+            //     },
+            //     {
+            //         priority: 0,
+            //         enabled: this.configManager.getModuleEnabled(ProductDataModule.moduleId),
+            //         moduleConfig: ProductDataModule.moduleConfig,
+            //     }
+            // )
 
             // 商品卡榜单页面模块
             this.moduleManager.registerModule(
@@ -5885,27 +6630,27 @@
             )
 
             // 千川素材分析页面模块
-            this.moduleManager.registerModule(
-                QianchuanMaterialModule.moduleId,
-                /qianchuan\.jinritemai\.com\/dataV2\/roi2-material-analysis/,
-                () => {
-                    console.log('初始化千川素材分析监听模块')
-                    const module = new QianchuanMaterialModule(this.requestListenerManager)
-                    module.init()
-                    return module
-                },
-                (module) => {
-                    console.log('清理千川素材分析监听模块')
-                    if (module && module.destroy) {
-                        module.destroy()
-                    }
-                },
-                {
-                    priority: 0,
-                    enabled: this.configManager.getModuleEnabled(QianchuanMaterialModule.moduleId),
-                    moduleConfig: QianchuanMaterialModule.moduleConfig,
-                }
-            )
+            // this.moduleManager.registerModule(
+            //     QianchuanMaterialModule.moduleId,
+            //     /qianchuan\.jinritemai\.com\/dataV2\/roi2-material-analysis/,
+            //     () => {
+            //         console.log('初始化千川素材分析监听模块')
+            //         const module = new QianchuanMaterialModule(this.requestListenerManager)
+            //         module.init()
+            //         return module
+            //     },
+            //     (module) => {
+            //         console.log('清理千川素材分析监听模块')
+            //         if (module && module.destroy) {
+            //             module.destroy()
+            //         }
+            //     },
+            //     {
+            //         priority: 0,
+            //         enabled: this.configManager.getModuleEnabled(QianchuanMaterialModule.moduleId),
+            //         moduleConfig: QianchuanMaterialModule.moduleConfig,
+            //     }
+            // )
 
             // 示例：为同一个URL注册多个模块（按优先级排序）
             // this.moduleManager.registerModule(
@@ -6085,7 +6830,7 @@
                 }, params)
                 const resJsonStr = res.substring(2)
                 const resJson = JSON.parse(resJsonStr)
-                console.log('验证登录状态返回数据:', resJson)
+                // console.log('验证登录状态返回数据:', resJson)
                 if (!resJson["IsSuccess"]) {
                     console.error('验证登录状态失败:', resJson)
                     return { valid: false, message: '验证登录状态失败' }
@@ -6277,7 +7022,73 @@
             // 等待所有查询完成
             await Promise.all(promises)
 
-            console.log("批量库存查询完成，结果:", skuStockMap)
+            // console.log("批量库存查询完成，结果:", skuStockMap)
+            return skuStockMap
+        }
+
+        /**
+         * 批量获取商品库存详情
+         * @param {string[]} skuIds - SKU ID数组
+         * @returns {Promise<Map>} - 返回SKU ID到库存数量的映射
+         */
+        async getProductInventoryDetail(skuIds) {
+            console.log("批量获取商品库存详情：", skuIds)
+
+            let erp321Cookie = await this.ensureValidCookie()
+
+            const skuStockMap = new Map()
+
+            if (!skuIds || skuIds.length === 0) {
+                return skuStockMap
+            }
+
+            // 并发处理所有SKU查询
+            const promises = skuIds.map(async (skuId) => {
+                const callBackParam = {
+                    "Method": "LoadDataToJSON",
+                    "Args": ["1", `[{"k":"sku_id","v":"${skuId}","c":"like"}]`, "{}"]
+                }
+                const callBackParamStr = JSON.stringify(callBackParam)
+                const params = `__VIEWSTATE=%2FwEPDwUKLTYxMzg5NTU3MWRkpa9oWac5nJUlZdTmtux9W%2F7UGS8%3D&__VIEWSTATEGENERATOR=491FF2E7&sku_id=${skuId}&_jt_page_size=500&__CALLBACKID=JTable1&__CALLBACKPARAM=${encodeURIComponent(callBackParamStr)}`
+
+                try {
+                    const res = await Utils.sendHttpRequest('POST', 'https://www.erp321.com/app/item/SkuStock/SkuStock.aspx?_c=jst-epaas&am___=LoadDataToJSON', {
+                        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                        'Cookie': erp321Cookie
+                    }, params)
+
+                    try {
+                        const resJsonStr = res.substring(2)
+                        const resJson = JSON.parse(resJsonStr)
+
+                        if (!resJson["IsSuccess"]) {
+                            console.warn(`查询SKU ${skuId} 库存失败:`, resJson)
+                            return
+                        }
+                        // console.log(`查询SKU ${skuId} 库存成功:`, resJson)
+                        const dataJson = JSON.parse(resJson['ReturnValue'])
+                        dataJson['datas'].forEach(skuData => {
+                            // 计算可用库存：总库存 - 锁定库存 - 运营云仓库存 - 订单锁定 + 进货仓库存
+                            const stockNum = skuData['qty'] - skuData['lock_qty'] - skuData['lwh_result_lock_qty'] - skuData['order_lock'] + skuData['in_qty']
+                            // 采购在途 + 采购在途库存
+                            const caigouStockNum = skuData['in_qty'] + skuData['purchase_qty']
+                            skuStockMap.set(skuData['sku_id'], {
+                                "在仓可用库存": stockNum,
+                                "采购在途库存": caigouStockNum,
+                            })
+                        })
+                    } catch (parseError) {
+                        console.error(`解析SKU ${skuId} 库存数据失败:`, parseError)
+                    }
+                } catch (err) {
+                    console.error(`查询SKU ${skuId} 库存失败:`, err)
+                }
+            })
+
+            // 等待所有查询完成
+            await Promise.all(promises)
+
+            // console.log("批量库存查询完成，结果:", skuStockMap)
             return skuStockMap
         }
     }
@@ -6408,8 +7219,8 @@
         /**
          * 获取模块是否启用
          */
-        getModuleEnabled(moduleName) {
-            return this.getConfig(`modules.${moduleName}`, true)
+        getModuleEnabled(moduleName, defaultValue = true) {
+            return this.getConfig(`modules.${moduleName}`, defaultValue)
         }
 
         /**
@@ -6835,7 +7646,8 @@
             let html = ''
             const moduleConfigs = this.getModuleConfigs()
             for (const [moduleId, config] of Object.entries(moduleConfigs)) {
-                const enabled = this.configManager.getModuleEnabled(moduleId)
+                const enabled = this.configManager.getModuleEnabled(moduleId, this.moduleRegistry.getModuleEnabled(moduleId))
+                const hasConfig = config.configFields && config.configFields.length > 0
                 html += `
                         <div class="module-item" data-module="${moduleId}">
                             <div class="module-header">
@@ -6843,7 +7655,7 @@
                                 <div class="module-switch ${enabled ? 'active' : ''}" data-module="${moduleId}"></div>
                             </div>
                             <div class="module-description">${config.description}</div>
-                            ${config.hasConfig ? this.getModuleConfigHTML(moduleId, config.configFields) : ''}
+                            ${hasConfig ? this.getModuleConfigHTML(moduleId, config.configFields) : ''}
                         </div>
                     `
             }
@@ -7099,7 +7911,7 @@
             // 刷新模块开关
             this.modal.querySelectorAll('.module-switch').forEach(switchEl => {
                 const moduleId = switchEl.dataset.module
-                const enabled = this.configManager.getModuleEnabled(moduleId)
+                const enabled = this.configManager.getModuleEnabled(moduleId, this.moduleRegistry.getModuleEnabled(moduleId))
                 if (enabled) {
                     switchEl.classList.add('active')
                 } else {
