@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         抖店工具箱合并版-3.1.0
-// @version      3.1.0
+// @name         抖店工具箱合并版-3.1.2
+// @version      3.1.1
 // @description  抖店增强工具箱 网页功能增强
 // @author       xchen
 // @match        https://*.jinritemai.com/*
@@ -517,6 +517,52 @@
                 return parseFloat(wanStr.replace('万', '')) * 10000
             }
             return parseFloat(wanStr) || 0
+        },
+
+        /**
+         * 格式化范围值
+         * @param {number} lower - 下限值
+         * @param {number} upper - 上限值
+         * @param {number} unit - 格式化单位（3: 金额, 4: 百分比, 5: 人数/数量）
+         * @returns {string} 格式化后的范围字符串
+         * @description 格式化范围值，根据单位将数值转换为金额、百分比或人数/数量格式。
+         * 当下限值等于上限值时，直接返回格式化后的下限值。
+         * 否则，返回下限值-上限值的范围字符串。
+         */
+        formatRange(lower, upper, unit) {
+            function formatNum(num, digits = 1) {
+                return Number(num)
+                    .toFixed(digits)
+                    .replace(/\.0+$/, '')     // 去掉 .0
+                    .replace(/(\.\d*[1-9])0+$/, '$1') // 去掉多余0
+            }
+            function formatValue(v, unit) {
+
+                switch (unit) {
+
+                    // 金额
+                    case 3:
+                        v = v / 100
+                        if (v >= 100000000) return `¥${formatNum(v / 100000000)}亿`
+                        if (v >= 10000) return `¥${formatNum(v / 10000)}万`
+                        return `¥${formatNum(v)}`
+
+                    // 百分比
+                    case 4:
+                        return `${formatNum(v * 100)}%`
+
+                    // 人数 / 数量
+                    case 5:
+                        if (v >= 100000000) return `${formatNum(v / 100000000)}亿`
+                        if (v >= 10000) return `${formatNum(v / 10000)}万`
+                        return `${v}`
+
+                    default:
+                        return v
+                }
+            }
+            if (lower === upper) return formatValue(lower, unit)
+            return `${formatValue(lower, unit)}-${formatValue(upper, unit)}`
         },
 
         /**
@@ -1947,7 +1993,9 @@
             }
             try {
                 localStorage.setItem(key, JSON.stringify(value));
-            } catch { }
+            } catch {
+                console.error('error', '存储失败')
+            }
         },
 
         /**
@@ -3829,12 +3877,14 @@
                 return
             }
             const productIdSet = new Set(this.topNProductMap.keys())
-            if (this.productInfosWithStock === null 
-                || this.productInfosUpdateTime === 0 
+            if (this.productInfosWithStock === null
+                || this.productInfosUpdateTime === 0
                 || Date.now() - this.productInfosUpdateTime > 10 * 60 * 1000
-                || (() => {const productIdsInStock = new Set(this.productInfosWithStock.map(info => info["id"]));
-                const productIdsToUpdate = new Set([...productIdSet].filter(id => !productIdsInStock.has(id)));
-                return productIdsToUpdate.size !== 0})()) {
+                || (() => {
+                    const productIdsInStock = new Set(this.productInfosWithStock.map(info => info["id"]));
+                    const productIdsToUpdate = new Set([...productIdSet].filter(id => !productIdsInStock.has(id)));
+                    return productIdsToUpdate.size !== 0
+                })()) {
                 const productInfos = await this.getProductInfo(productIdSet)
                 if (!productInfos || productInfos.length === 0) {
                     console.error('获取到的商品信息为空')
@@ -3908,7 +3958,7 @@
          */
         async screenshotAndSend(html) {
             const conversationId = this.getConfig("conversationId")
-            
+
             //通过html构造canvas
             const imageBlob = await Utils.captureHtmlToBlob(html, {
                 width: 430
@@ -4019,7 +4069,8 @@
             toolDiv.style.height = '40px'
             // 添加按钮
             const showModalBtn = document.createElement('button')
-            showModalBtn.innerText = '填充商品编码'
+            showModalBtn.id = 'show-quick-fill-btn'
+            showModalBtn.innerText = '快速填写'
             showModalBtn.style.float = 'right'
             showModalBtn.style.zIndex = '9999'
             showModalBtn.style.padding = '5px 10px'
@@ -4047,8 +4098,6 @@
 
             showModalBtn.addEventListener('click', () => {
                 showModalBtn.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                //处理是否完成标记
-                let isCompleted = false
 
                 // 表格sku行数据
                 const eTableEles = document.querySelectorAll('div.ecom-g-table-container')
@@ -4100,6 +4149,32 @@
                 sizeValues.forEach(sizeValue => {
                     sizeMap[sizeValue.id] = sizeValue.name
                 })
+                const parseSizeNumber = (sizeText) => {
+                    const match = String(sizeText || '').match(/\d+(\.\d+)?/)
+                    return match ? Number(match[0]) : null
+                }
+                const sizeNumberList = [...new Set(
+                    Object.values(sizeMap)
+                        .map(sizeName => parseSizeNumber(sizeName))
+                        .filter(sizeNum => Number.isFinite(sizeNum))
+                )].sort((a, b) => a - b)
+                const currentMinSize = sizeNumberList.length > 0 ? sizeNumberList[0] : null
+                const currentMaxSize = sizeNumberList.length > 0 ? sizeNumberList[sizeNumberList.length - 1] : null
+                const buildDefaultPriceRanges = () => {
+                    if (!Number.isFinite(currentMinSize) || !Number.isFinite(currentMaxSize)) {
+                        return []
+                    }
+                    const rangeSeeds = [
+                        [currentMinSize, 25],
+                        [26, 30],
+                        [31, 37],
+                        [38, currentMaxSize]
+                    ]
+                    return rangeSeeds.map(([start, end]) => ({
+                        min: Math.max(start, currentMinSize),
+                        max: Math.min(end, currentMaxSize)
+                    })).filter(range => range.min <= range.max)
+                }
 
                 // 现代化弹窗生成用户输入区域
                 const modal = document.createElement('div')
@@ -4135,18 +4210,40 @@
                         display: flex;
                         flex-direction: column;
                     ">
-                        <div style="
-                            padding: 16px 32px;
+                        <div class="pannel-top" style="
+                            padding: 5px 32px;
                             border-bottom: 1px solid #f0f0f0;
                             background: #2563eb;
                             color: white;
                             text-align: center;
                         ">
-                            <h3 style="margin: 0; color: #f0f0f0; font-size: 18px; font-weight: 600;">快速填充商品编码</h3>
-                        </div>
-                        
-                        <div style="flex: 1; overflow-y: auto; padding: 20px 32px;">
-                            <div style="
+                            <h3 style="margin: 0; color: #f0f0f0; font-size: 18px; font-weight: 600;">快速填写商品信息</h3>
+                            <div class="pannel-tab-switch-container" style="margin-top: 4px; display: flex; justify-content: center; gap: 8px;">
+                                <button id="tab-btn-code" style="
+                                    padding: 4px 8px;
+                                    font-size: 12px;
+                                    border-radius: 6px;
+                                    border: 1px solid rgba(255, 255, 255, 0.4);
+                                    background: #ffffff;
+                                    color: #2563eb;
+                                    cursor: pointer;
+                                    font-weight: 600;
+                                ">商品编码</button>
+                                <button id="tab-btn-price" style="
+                                    padding: 4px 8px;
+                                    font-size: 12px;
+                                    border-radius: 6px;
+                                    border: 1px solid rgba(255, 255, 255, 0.4);
+                                    background: transparent;
+                                    color: #ffffff;
+                                    cursor: pointer;
+                                    font-weight: 500;
+                                ">码段价格</button>
+                                </div>
+                            </div>
+                        <div class="pannel-content-container" style="flex: 1; overflow-y: auto; padding: 20px 32px;">
+                            <div id="tab-panel-code" class="pannel-content" style="display: block;">
+                                <div style="
                                 display: grid;
                                 grid-template-columns: 1fr 1fr 1fr 1fr;
                                 gap: 10px;
@@ -4157,15 +4254,15 @@
                                 font-size: 12px;
                                 color: #64748b;
                                 font-weight: 500;
-                            ">
-                                <div>颜色分类</div>
-                                <div>前缀</div>
-                                <div>发货时间</div>
-                                <div>后缀</div>
-                            </div>
-                            
-                            <div style="margin-bottom: 16px;">
-                                ${Object.keys(colorMap).map(key => {
+                                ">
+                                    <div>颜色分类</div>
+                                    <div>前缀</div>
+                                    <div>发货时间</div>
+                                    <div>后缀</div>
+                                </div>
+                                
+                                <div style="margin-bottom: 16px;">
+                                    ${Object.keys(colorMap).map(key => {
                     // 为每个颜色获取唯一的发货时间ID列表
                     const uniqueTimeIds = [...new Set(tableRows.filter(row =>
                         row.form.value._value.spec_detail_ids[0] === key
@@ -4249,74 +4346,242 @@
                 }).join('')}
                             </div>
                         </div>
-                        
-                        <div style="
-                            padding: 16px 32px;
-                            border-top: 1px solid #f0f0f0;
-                            background: #fafbfc;
-                            display: flex;
-                            justify-content: center;
-                            gap: 12px;
-                        ">
-                            <button id="cancel-prefixes" style="
-                                padding: 8px 16px;
-                                font-size: 13px;
-                                background: #ffffff;
-                                color: #374151;
-                                border: 1px solid #d1d5db;
+                        <div id="tab-panel-price" class="pannel-content" style="display: none;">
+                            <div style="
+                                margin-bottom: 12px;
+                                padding: 10px 12px;
+                                background: #f8fafc;
+                                border: 1px solid #e2e8f0;
                                 border-radius: 6px;
-                                cursor: pointer;
-                                font-weight: 500;
-                                transition: all 0.2s ease;
-                            " onmouseover="this.style.background='#f9fafb'; this.style.borderColor='#9ca3af'" onmouseout="this.style.background='#ffffff'; this.style.borderColor='#d1d5db'">
-                                取消
-                            </button>
-                            
-                            <button id="submit-prefixes" style="
-                                padding: 8px 16px;
-                                font-size: 13px;
-                                background: #2563eb;
-                                color: white;
-                                border: none;
+                                color: #475569;
+                                font-size: 12px;
+                            ">
+                                当前尺码范围：<span id="price-range-current-size">${Number.isFinite(currentMinSize) && Number.isFinite(currentMaxSize) ? `${currentMinSize} - ${currentMaxSize}` : '未解析到可用尺码'}</span>
+                            </div>
+                            <div style="
+                                margin-bottom: 12px;
+                                padding: 10px 12px;
+                                background: #f8fafc;
+                                border: 1px solid #e2e8f0;
                                 border-radius: 6px;
-                                cursor: pointer;
+                                color: #475569;
+                                font-size: 12px;
+                            ">
+                                <div style="margin-bottom: 6px; font-weight: 600; color: #334155;">颜色分类</div>
+                                <div id="price-color-checkboxes" style="display: flex; flex-wrap: wrap; gap: 10px;">
+                                    ${Object.keys(colorMap).map(colorId => `
+                                        <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                                            <input type="checkbox" class="price-color-checkbox" data-color-id="${colorId}" checked>
+                                            <span style="color: #475569;">${colorMap[colorId]}</span>
+                                        </label>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div style="
+                                display: grid;
+                                grid-template-columns: 1fr 1fr 1fr auto;
+                                gap: 10px;
+                                margin-bottom: 12px;
+                                padding: 8px 12px;
+                                background: #f1f5f9;
+                                border-radius: 6px;
+                                font-size: 12px;
+                                color: #64748b;
                                 font-weight: 500;
-                                transition: all 0.2s ease;
-                                position: relative;
-                                min-width: 70px;
-                                display: flex;
-                                align-items: center;
-                                justify-content: center;
-                            " onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(37, 99, 235, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
-                                <span id="btn-text" style="display: block;">确定</span>
-                                <div id="loading-spinner" style="display: none; position: absolute; top: 25%; left: 30%; transform: translate(-50%, -50%); border: 2px solid rgba(255,255,255,0.3); border-top: 2px solid white; border-radius: 50%; width: 20px; height: 20px; animation: spin 0.8s linear infinite;"></div>
-                            </button>
+                            ">
+                                <div>最小尺码</div>
+                                <div>最大尺码</div>
+                                <div>价格</div>
+                                <div>操作</div>
+                            </div>
+                            <div id="price-range-rows" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                            <div style="display: flex; justify-content: flex-end; gap: 10px; margin: 7px 0 7px 0;">
+                                <button id="add-price-row" style="
+                                    padding: 6px 12px;
+                                    font-size: 12px;
+                                    background: #ffffff;
+                                    color: #374151;
+                                    border: 1px solid #d1d5db;
+                                    border-radius: 6px;
+                                    cursor: pointer;
+                                    font-weight: 500;
+                                ">添加行</button>
+                                <button id="clear-price-rows" style="
+                                    padding: 6px 12px;
+                                    font-size: 12px;
+                                    background: #ffffff;
+                                    color: #374151;
+                                    border: 1px solid #d1d5db;
+                                    border-radius: 6px;
+                                    cursor: pointer;
+                                    font-weight: 500;
+                                ">清除</button>
+                            </div>
                         </div>
+                    </div>
+                    <div class="pannel-bottom" style="
+                        padding: 6px 32px;
+                        background: #fafbfc;
+                        display: flex;
+                        justify-content: center;
+                        gap: 12px;
+                    ">
+                        <button id="cancel-prefixes" style="
+                            padding: 6px 16px;
+                            font-size: 13px;
+                            background: #ffffff;
+                            color: #374151;
+                            border: 1px solid #d1d5db;
+                            border-radius: 6px;
+                            cursor: pointer;
+                            font-weight: 500;
+                            transition: all 0.2s ease;
+                        " onmouseover="this.style.background='#f9fafb'; this.style.borderColor='#9ca3af'" onmouseout="this.style.background='#ffffff'; this.style.borderColor='#d1d5db'">
+                            取消
+                        </button>
+                        
+                        <button id="submit-prefixes" style="
+                            padding: 6px 16px;
+                            font-size: 13px;
+                            background: #2563eb;
+                            color: white;
+                            border: none;
+                            border-radius: 6px;
+                            cursor: pointer;
+                            font-weight: 500;
+                            transition: all 0.2s ease;
+                            position: relative;
+                            min-width: 70px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                        " onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(37, 99, 235, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
+                            <span id="btn-text" style="display: block;">确定</span>
+                            <div id="loading-spinner" style="display: none; position: absolute; top: 25%; left: 30%; transform: translate(-50%, -50%); border: 2px solid rgba(255,255,255,0.3); border-top: 2px solid white; border-radius: 50%; width: 20px; height: 20px; animation: spin 0.8s linear infinite;"></div>
+                        </button>
                     </div>
                 `
                 document.body.appendChild(modal)
-                const submitBtn = document.getElementById('submit-prefixes')
-                // 确定按钮点击后处理输入的数据
-                submitBtn.addEventListener('click', () => {
-                    // 显示加载动画
-                    document.getElementById('btn-text').style.display = 'none'
-                    document.getElementById('loading-spinner').style.display = 'block'
-                    const prefixMap = {}
-                    const timeSuffixMap = {} // 使用嵌套对象存储颜色-时间对应的后缀
+                const submitBtn = modal.querySelector('#submit-prefixes')
+                const btnText = modal.querySelector('#btn-text')
+                const loadingSpinner = modal.querySelector('#loading-spinner')
+                const tabBtnCode = modal.querySelector('#tab-btn-code')
+                const tabBtnPrice = modal.querySelector('#tab-btn-price')
+                const tabPanelCode = modal.querySelector('#tab-panel-code')
+                const tabPanelPrice = modal.querySelector('#tab-panel-price')
+                const priceRangeRows = modal.querySelector('#price-range-rows')
+                const addPriceRowBtn = modal.querySelector('#add-price-row')
+                const clearPriceRowsBtn = modal.querySelector('#clear-price-rows')
+                const priceColorCheckboxes = modal.querySelectorAll('.price-color-checkbox')
 
-                    // 初始化时间后缀映射
+                let activeTab = 'code'
+
+                const setTabButtonStyle = (btn, isActive) => {
+                    btn.style.background = isActive ? '#ffffff' : 'transparent'
+                    btn.style.color = isActive ? '#2563eb' : '#ffffff'
+                    btn.style.fontWeight = isActive ? '600' : '500'
+                }
+
+                const switchTab = (tabName) => {
+                    activeTab = tabName
+                    const showCodeTab = tabName === 'code'
+                    tabPanelCode.style.display = showCodeTab ? 'block' : 'none'
+                    tabPanelPrice.style.display = showCodeTab ? 'none' : 'block'
+                    setTabButtonStyle(tabBtnCode, showCodeTab)
+                    setTabButtonStyle(tabBtnPrice, !showCodeTab)
+                }
+
+                const addPriceRangeRow = (minSize = '', maxSize = '', price = '') => {
+                    const row = document.createElement('div')
+                    row.className = 'price-range-row'
+                    row.style.cssText = `
+                        display: grid;
+                        grid-template-columns: 1fr 1fr 1fr auto;
+                        gap: 10px;
+                        align-items: center;
+                        padding: 8px 12px;
+                        border: 1px solid #e2e8f0;
+                        border-radius: 6px;
+                        background: #ffffff;
+                    `
+                    row.innerHTML = `
+                        <input type="number" class="price-range-min" value="${minSize}" placeholder="最小尺码" ${Number.isFinite(currentMinSize) ? `min="${currentMinSize}"` : ''} ${Number.isFinite(currentMaxSize) ? `max="${currentMaxSize}"` : ''} style="
+                            width: 100%;
+                            padding: 5px 8px;
+                            border: 1px solid #d1d5db;
+                            border-radius: 4px;
+                            font-size: 12px;
+                            background: white;
+                        ">
+                        <input type="number" class="price-range-max" value="${maxSize}" placeholder="最大尺码" ${Number.isFinite(currentMinSize) ? `min="${currentMinSize}"` : ''} ${Number.isFinite(currentMaxSize) ? `max="${currentMaxSize}"` : ''} style="
+                            width: 100%;
+                            padding: 5px 8px;
+                            border: 1px solid #d1d5db;
+                            border-radius: 4px;
+                            font-size: 12px;
+                            background: white;
+                        ">
+                        <input type="number" min="0" step="0.01" class="price-range-price" value="${price}" placeholder="价格" style="
+                            width: 100%;
+                            padding: 5px 8px;
+                            border: 1px solid #d1d5db;
+                            border-radius: 4px;
+                            font-size: 12px;
+                            background: white;
+                        ">
+                        <button type="button" class="delete-price-row" style="
+                            padding: 5px 10px;
+                            font-size: 12px;
+                            background: #ffffff;
+                            color: #374151;
+                            border: 1px solid #d1d5db;
+                            border-radius: 6px;
+                            cursor: pointer;
+                        ">删除</button>
+                    `
+                    priceRangeRows.appendChild(row)
+                }
+
+                const initDefaultPriceRows = () => {
+                    const defaultRanges = buildDefaultPriceRanges()
+                    if (defaultRanges.length === 0) {
+                        addPriceRangeRow()
+                        return
+                    }
+                    defaultRanges.forEach(range => {
+                        addPriceRangeRow(range.min, range.max, '')
+                    })
+                }
+
+                const setLoading = (loading) => {
+                    btnText.style.display = loading ? 'none' : 'block'
+                    loadingSpinner.style.display = loading ? 'block' : 'none'
+                    submitBtn.disabled = loading
+                }
+
+                const applyFill = (priceRules) => {
+                    const selectedColorIds = new Set(
+                        [...priceColorCheckboxes]
+                            .filter(checkbox => checkbox.checked)
+                            .map(checkbox => checkbox.getAttribute('data-color-id'))
+                    )
+                    const hasPriceRules = Array.isArray(priceRules) && priceRules.length > 0
+                    if (hasPriceRules && selectedColorIds.size === 0) {
+                        UI.showMessage('error', '请至少选择一个颜色分类')
+                        return false
+                    }
+                    const prefixMap = {}
+                    const timeSuffixMap = {}
                     Object.keys(colorMap).forEach(colorId => {
                         timeSuffixMap[colorId] = {}
                     })
 
-                    // 收集颜色前缀
-                    document.querySelectorAll('.color-prefix').forEach(input => {
+                    modal.querySelectorAll('.color-prefix').forEach(input => {
                         const colorId = input.getAttribute('data-color-id')
                         prefixMap[colorId] = input.value.trim()
                     })
 
-                    // 收集颜色-时间对应的后缀
-                    document.querySelectorAll('.color-time-suffix').forEach(input => {
+                    modal.querySelectorAll('.color-time-suffix').forEach(input => {
                         const colorId = input.getAttribute('data-color-id')
                         const timeId = input.getAttribute('data-time-id')
                         timeSuffixMap[colorId][timeId] = input.value.trim()
@@ -4326,42 +4591,140 @@
                         const colorId = item.form.value._value.spec_detail_ids[0]
                         const sizeId = item.form.value._value.spec_detail_ids[1]
                         const timeId = item.form.value._value.spec_detail_ids[2]
-
-                        // 获取用户输入的前缀和对应时间的后缀
                         const prefix = prefixMap[colorId] || ''
                         const timeSuffix = timeSuffixMap[colorId] && timeSuffixMap[colorId][timeId] ? timeSuffixMap[colorId][timeId] : ''
-                        const size = sizeMap[sizeId]
+                        const sizeName = sizeMap[sizeId]
+                        const sizeNum = parseSizeNumber(sizeName)
                         const lastProductCode = item.form.value._value.code
-                        if (size && (prefix.length > 0 || timeSuffix.length > 0)) {
-                            // 构建完整的商品编码
+                        if (!Number.isFinite(sizeNum)) {
+                            return
+                        }
+                        // 更新商品编码
+                        if (prefix.length > 0 || timeSuffix.length > 0) {
                             let productCode = ''
                             if (prefix.length > 0) {
-                                productCode = prefix + size + timeSuffix
+                                productCode = prefix + sizeNum + timeSuffix
                             } else if (timeSuffix.length > 0) {
                                 productCode = lastProductCode + timeSuffix
                             }
-                            // 填充商品编码
-                            item.form.children.code.value._setter(productCode)
+                            const codeSetter = item.form.children.code.value._setter
+                            if (typeof codeSetter === 'function') {
+                                codeSetter(productCode)
+                            }
+                        }
+                        // 更新价格
+                        if (hasPriceRules && !selectedColorIds.has(String(colorId))) {
+                            return
+                        }
+                        const matchedRule = hasPriceRules ? priceRules.find(rule => sizeNum >= rule.minSize && sizeNum <= rule.maxSize) : null
+                        if (!matchedRule) {
+                            return
+                        }
+                        const priceSetter = item?.form?.children?.price?.value?._setter
+                        if (typeof priceSetter === 'function') {
+                            priceSetter(matchedRule.price)
                         }
                     })
-                    isCompleted = true
+                    return true
+                }
 
-                    // 关闭弹窗
-                    function checkCompleted() {
-                        setTimeout(() => {
-                            if (isCompleted) {
-                                modal.remove()
-                            } else {
-                                checkCompleted()
-                            }
-                        }, 500)
+                const collectPriceRules = () => {
+                    if (!Number.isFinite(currentMinSize) || !Number.isFinite(currentMaxSize)) {
+                        UI.showMessage('error', '当前尺码数据无法解析，不能执行码段价格填写')
+                        return null
                     }
-                    checkCompleted()
+                    const rows = [...priceRangeRows.querySelectorAll('.price-range-row')]
+                    // if (rows.length === 0) {
+                    //     UI.showMessage('error', '请先添加至少一条码段价格规则')
+                    //     return null
+                    // }
+                    const rules = []
+                    for (let i = 0; i < rows.length; i++) {
+                        const row = rows[i]
+                        const minRaw = row.querySelector('.price-range-min').value.trim()
+                        const maxRaw = row.querySelector('.price-range-max').value.trim()
+                        const priceRaw = row.querySelector('.price-range-price').value.trim()
+                        const rowNo = i + 1
+                        if (priceRaw === '') {
+                            continue
+                        }
+                        if (minRaw === '' || maxRaw === '') {
+                            UI.showMessage('error', `第${rowNo}行请完整填写最小尺码、最大尺码`)
+                            return null
+                        }
+
+                        const minSize = Number(minRaw)
+                        const maxSize = Number(maxRaw)
+                        const price = Number(priceRaw)
+
+                        if (!Number.isFinite(minSize) || !Number.isFinite(maxSize)) {
+                            UI.showMessage('error', `第${rowNo}行尺码必须为数字`)
+                            return null
+                        }
+                        if (minSize < currentMinSize || maxSize > currentMaxSize) {
+                            UI.showMessage('error', `第${rowNo}行尺码需在当前范围 ${currentMinSize}-${currentMaxSize} 内`)
+                            return null
+                        }
+                        if (minSize > maxSize) {
+                            UI.showMessage('error', `第${rowNo}行最小尺码不能大于最大尺码`)
+                            return null
+                        }
+                        if (!Number.isFinite(price) || price < 0) {
+                            UI.showMessage('error', `第${rowNo}行价格必须是非负数字`)
+                            return null
+                        }
+
+                        rules.push({
+                            minSize,
+                            maxSize,
+                            price: priceRaw
+                        })
+                    }
+
+                    const sortedRules = [...rules].sort((a, b) => a.minSize - b.minSize)
+                    for (let i = 1; i < sortedRules.length; i++) {
+                        if (sortedRules[i].minSize <= sortedRules[i - 1].maxSize) {
+                            UI.showMessage('error', '码段区间不能重叠，请检查输入')
+                            return null
+                        }
+                    }
+                    return rules
+                }
+                switchTab('code')
+                initDefaultPriceRows()
+                tabBtnCode.addEventListener('click', () => switchTab('code'))
+                tabBtnPrice.addEventListener('click', () => switchTab('price'))
+
+                addPriceRowBtn.addEventListener('click', () => addPriceRangeRow())
+                clearPriceRowsBtn.addEventListener('click', () => {
+                    priceRangeRows.innerHTML = ''
+                })
+                priceRangeRows.addEventListener('click', (event) => {
+                    if (event.target.classList.contains('delete-price-row')) {
+                        const targetRow = event.target.closest('.price-range-row')
+                        if (targetRow) {
+                            targetRow.remove()
+                        }
+                    }
+                })
+
+                // 确定按钮点击后处理输入的数据
+                submitBtn.addEventListener('click', () => {
+                    setLoading(true)
+                    let submitSuccess = false
+                    const priceRules = collectPriceRules()
+                    if (priceRules) {
+                        submitSuccess = applyFill(priceRules)
+                    }
+                    if (submitSuccess) {
+                        modal.remove()
+                    } else {
+                        setLoading(false)
+                    }
                 })
 
                 // 取消按钮点击后关闭弹窗
-                document.getElementById('cancel-prefixes').addEventListener('click', () => {
-                    // 关闭弹窗
+                modal.querySelector('#cancel-prefixes').addEventListener('click', () => {
                     modal.remove()
                 })
             })
@@ -5919,7 +6282,7 @@
         static moduleId = 'shopRankModule'
         static moduleConfig = {
             name: '罗盘竞店榜单',
-            description: '一键显示关注店铺排名，意见更新在线表格',
+            description: '一键显示关注店铺排名，更新在线表格',
             configFields: [
                 { key: 'followShopNames', label: '关注店铺名称', placeholder: '多个店铺用逗号分隔' },
                 { key: 'feishuDocId', label: '飞书文档ID', placeholder: '请输入飞书文档ID' },
@@ -6006,14 +6369,59 @@
 
                 const jsonData = JSON.parse(data);
                 const list = jsonData?.data?.module_data?.search_shop_rank?.compass_general_table_value?.data || [];
+                function formatCell(cell, isSelf) {
+                    if (isSelf) {
+                        const val = cell.index_values.value.value
+                        const unit = cell.index_values.value.unit
+                        return Utils.formatRange(val, val, unit)
+                    }
+                    const extra = cell.index_values.extra_value
+
+                    const lower = extra.lower.value
+                    const upper = extra.upper.value
+                    const unit = extra.lower.unit
+
+                    return Utils.formatRange(lower, upper, unit)
+                }
                 list.forEach(item => {
                     const shopName = item?.cell_info?.shop?.shop?.shop_name;
+                    const isSelf = item?.cell_info?.is_self?.value?.value === 1;
                     const rankVal = Number(item?.cell_info?.rank?.index_values?.value?.value);
+                    console.log('[ShopRank] 店铺:', shopName, '排名:', rankVal, '是否自己:', isSelf);
+                    //成交金额
+                    const payAmt = formatCell(item?.cell_info?.pay_amt, isSelf)
+                    //成交订单数
+                    const payCnt = formatCell(item?.cell_info?.pay_cnt, isSelf)
+                    //成交人数
+                    const payUcnt = formatCell(item?.cell_info?.pay_ucnt, isSelf)
+                    //客单价
+                    const payUserUnitPrice = formatCell(item?.cell_info?.pay_user_unit_price, isSelf)
+                    //商品点击-成交转化率
+                    const productClickPayRatio = formatCell(item?.cell_info?.product_click_pay_ratio, isSelf)
+                    //商品点击人数
+                    const productClickUcnt = formatCell(item?.cell_info?.product_click_ucnt, isSelf)
+                    //商品曝光点击率
+                    const productShowClickRatio = formatCell(item?.cell_info?.product_show_click_ratio, isSelf)
+                    //商品曝光人数
+                    const productShowUcnt = formatCell(item?.cell_info?.product_show_ucnt, isSelf)
+                    const shopInfo = {
+                        shopName,
+                        isSelf,
+                        rankVal,
+                        payAmt,
+                        payCnt,
+                        payUcnt,
+                        payUserUnitPrice,
+                        productClickPayRatio,
+                        productClickUcnt,
+                        productShowClickRatio,
+                        productShowUcnt
+                    }
                     if (!shopName || Number.isNaN(rankVal)) return;
                     if (this.followShopNames.size && !this.followShopNames.has(shopName)) return;
                     const prev = this.rankMap.get(shopName);
                     if (prev === undefined || rankVal < prev) {
-                        this.rankMap.set(shopName, rankVal);
+                        this.rankMap.set(shopName, shopInfo);
                     }
                 });
                 console.log('[ShopRank] 目标店铺排名缓存:', this.rankMap);
@@ -6031,6 +6439,15 @@
             } catch (e) {
                 console.error('[ShopRank] 处理请求失败:', e);
                 UI.showMessage('error', '处理数据失败');
+                this.isCollecting = false;
+                this.listeners.forEach(id => this.requestManager.removeListener(id));
+                this.listeners = [];
+                if (this.floatingButton) {
+                    this.floatingButton.disabled = false;
+                    this.floatingButton.innerText = '采集关注店铺';
+                    // 按钮颜色恢复正常
+                    this.floatingButton.style.backgroundColor = '#4285f4';
+                }
             }
         }
 
@@ -6072,18 +6489,26 @@
 
             const results = [];
             this.followShopNames.forEach(name => {
-                const rank = this.rankMap.get(name);
-                const numericRank = rank === undefined ? Infinity : Number(rank);
+                const shopInfo = this.rankMap.get(name);
+                const numericRank = shopInfo && Number.isFinite(shopInfo.rankVal) ? Number(shopInfo.rankVal) : Infinity;
                 results.push({
                     name,
                     rank: numericRank,
-                    rankText: numericRank === Infinity ? '200+' : `第 ${numericRank} 名`
+                    rankText: numericRank === Infinity ? '200+' : `${numericRank}`,
+                    payAmt: shopInfo?.payAmt,
+                    payCnt: shopInfo?.payCnt,
+                    payUcnt: shopInfo?.payUcnt,
+                    payUserUnitPrice: shopInfo?.payUserUnitPrice,
+                    productClickPayRatio: shopInfo?.productClickPayRatio,
+                    productClickUcnt: shopInfo?.productClickUcnt,
+                    productShowClickRatio: shopInfo?.productShowClickRatio,
+                    productShowUcnt: shopInfo?.productShowUcnt
                 });
             });
 
             results.sort((a, b) => a.rank - b.rank);
             this.floatingButton.style.display = 'none'
-            this.showRankResultModal('目标店铺榜单概览', results);
+            this.showRankResultModal('关注店铺榜单概览', results);
             this.rankMap.clear();
         }
         /**
@@ -6100,13 +6525,13 @@
             overlay.style.display = 'flex';
             overlay.style.alignItems = 'center';
             overlay.style.justifyContent = 'center';
-            overlay.style.overflowY = 'scroll';
+            overlay.style.overflow = 'hidden';
             overlay.style.zIndex = '999';
 
             const container = document.createElement('div')
-            container.style.top = '160px';
             container.style.minWidth = '360px'
-            container.style.maxWidth = '520px'
+            container.style.maxWidth = '1310px'
+            container.style.maxHeight = '80vh'
             container.style.backgroundColor = '#fff'
             container.style.borderRadius = '12px'
             container.style.boxShadow = '0 16px 40px rgba(15, 23, 42, 0.25)'
@@ -6114,6 +6539,8 @@
             container.style.fontFamily = '"Segoe UI", PingFangSC, "Microsoft YaHei", sans-serif'
             container.style.color = '#0f172a'
             container.style.position = 'relative'
+            container.style.display = 'flex'
+            container.style.flexDirection = 'column'
 
             const closeBtn = document.createElement('span')
             closeBtn.innerText = '×'
@@ -6128,6 +6555,7 @@
             closeBtn.addEventListener('click', () => overlay.remove())
 
             const titleEl = document.createElement('h3')
+            titleEl.id = 'titleEl'
             titleEl.innerText = title
             titleEl.style.margin = '0'
             titleEl.style.marginBottom = '16px'
@@ -6135,23 +6563,45 @@
             titleEl.style.fontWeight = '600'
 
             const subtitle = document.createElement('p')
+            subtitle.id = 'subtitle'
             subtitle.innerText = '以下为目标店铺的实时排名（按名次从高到低排序）'
             subtitle.style.margin = '0 0 20px'
             subtitle.style.fontSize = '14px'
             subtitle.style.color = '#64748b'
 
+            const headerArea = document.createElement('div')
+            headerArea.id = 'headerArea'
+            headerArea.style.flex = '0 0 auto'
+            headerArea.appendChild(titleEl)
+            headerArea.appendChild(subtitle)
+
+            const contentArea = document.createElement('div')
+            contentArea.id = 'contentArea'
+            contentArea.style.border = '1px solid rgb(226, 232, 240)'
+            contentArea.style.borderRadius = '10px'
+            contentArea.style.flex = '1 1 auto'
+            contentArea.style.overflowY = 'auto'
+            contentArea.style.paddingRight = '4px'
+            contentArea.style.marginTop = '4px'
+
             const table = document.createElement('div')
-            table.style.border = '1px solid #e2e8f0'
-            table.style.borderRadius = '10px'
-            table.style.overflow = 'hidden'
+            table.id = 'table-content'
+            // table.style.border = '1px solid #e2e8f0'
+            // table.style.borderRadius = '10px'
+            // table.style.overflow = 'hidden'
+            // table.style.overflowX = 'auto'
 
             const header = document.createElement('div')
+            header.id = 'table-header'
             header.style.display = 'grid'
-            header.style.gridTemplateColumns = '1fr 1fr'
+            header.style.gridTemplateColumns = '180px 90px repeat(8, 120px)'
             header.style.backgroundColor = '#f8fafc'
             header.style.fontSize = '13px'
             header.style.fontWeight = '600'
             header.style.color = '#475569'
+            header.style.position = 'sticky'
+            header.style.top = '0'
+            header.style.zIndex = '2'
 
             const headerName = document.createElement('div')
             headerName.innerText = '店铺名称'
@@ -6162,9 +6612,48 @@
             headerRank.style.padding = '12px 16px'
             headerRank.style.textAlign = 'right'
 
+            const headerPayAmt = document.createElement('div')
+            headerPayAmt.innerText = '成交金额'
+            headerPayAmt.style.padding = '12px 16px'
+
+            const headerPayCnt = document.createElement('div')
+            headerPayCnt.innerText = '成交订单数'
+            headerPayCnt.style.padding = '12px 16px'
+
+            const headerPayUcnt = document.createElement('div')
+            headerPayUcnt.innerText = '成交人数'
+            headerPayUcnt.style.padding = '12px 16px'
+
+            const headerPayUserUnitPrice = document.createElement('div')
+            headerPayUserUnitPrice.innerText = '客单价'
+            headerPayUserUnitPrice.style.padding = '12px 16px'
+
+            const headerProductClickPayRatio = document.createElement('div')
+            headerProductClickPayRatio.innerText = '转化率'
+            headerProductClickPayRatio.style.padding = '12px 16px'
+
+            const headerProductClickUcnt = document.createElement('div')
+            headerProductClickUcnt.innerText = '点击人数'
+            headerProductClickUcnt.style.padding = '12px 16px'
+
+            const headerProductShowClickRatio = document.createElement('div')
+            headerProductShowClickRatio.innerText = '点击率'
+            headerProductShowClickRatio.style.padding = '12px 16px'
+
+            const headerProductShowUcnt = document.createElement('div')
+            headerProductShowUcnt.innerText = '曝光人数'
+            headerProductShowUcnt.style.padding = '12px 16px'
+
             header.appendChild(headerName)
             header.appendChild(headerRank)
-            table.appendChild(header)
+            header.appendChild(headerPayAmt)
+            header.appendChild(headerPayCnt)
+            header.appendChild(headerPayUcnt)
+            header.appendChild(headerPayUserUnitPrice)
+            header.appendChild(headerProductClickPayRatio)
+            header.appendChild(headerProductClickUcnt)
+            header.appendChild(headerProductShowClickRatio)
+            header.appendChild(headerProductShowUcnt)
 
             if (results.length === 0) {
                 const empty = document.createElement('div')
@@ -6175,10 +6664,14 @@
                 empty.style.color = '#94a3b8'
                 table.appendChild(empty)
             } else {
+                const formatCellText = (val) => {
+                    if (val === undefined || val === null || val === '') return '-'
+                    return String(val)
+                }
                 results.forEach((item, idx) => {
                     const row = document.createElement('div')
                     row.style.display = 'grid'
-                    row.style.gridTemplateColumns = '1fr 1fr'
+                    row.style.gridTemplateColumns = '180px 90px repeat(8, 120px)'
                     row.style.alignItems = 'center'
                     row.style.backgroundColor = idx % 2 === 0 ? '#ffffff' : '#f9fbff'
 
@@ -6196,8 +6689,56 @@
                     rankCell.innerText = item.rankText
                     rankCell.style.color = item.rank === Infinity ? '#f97316' : (item.rank <= 10 ? '#0ea5e9' : '#0f172a')
 
+                    const payAmtCell = document.createElement('div')
+                    payAmtCell.style.padding = '12px 16px'
+                    payAmtCell.style.fontSize = '13px'
+                    payAmtCell.innerText = formatCellText(item.payAmt)
+
+                    const payCntCell = document.createElement('div')
+                    payCntCell.style.padding = '12px 16px'
+                    payCntCell.style.fontSize = '13px'
+                    payCntCell.innerText = formatCellText(item.payCnt)
+
+                    const payUcntCell = document.createElement('div')
+                    payUcntCell.style.padding = '12px 16px'
+                    payUcntCell.style.fontSize = '13px'
+                    payUcntCell.innerText = formatCellText(item.payUcnt)
+
+                    const payUserUnitPriceCell = document.createElement('div')
+                    payUserUnitPriceCell.style.padding = '12px 16px'
+                    payUserUnitPriceCell.style.fontSize = '13px'
+                    payUserUnitPriceCell.innerText = formatCellText(item.payUserUnitPrice)
+
+                    const productClickPayRatioCell = document.createElement('div')
+                    productClickPayRatioCell.style.padding = '12px 16px'
+                    productClickPayRatioCell.style.fontSize = '13px'
+                    productClickPayRatioCell.innerText = formatCellText(item.productClickPayRatio)
+
+                    const productClickUcntCell = document.createElement('div')
+                    productClickUcntCell.style.padding = '12px 16px'
+                    productClickUcntCell.style.fontSize = '13px'
+                    productClickUcntCell.innerText = formatCellText(item.productClickUcnt)
+
+                    const productShowClickRatioCell = document.createElement('div')
+                    productShowClickRatioCell.style.padding = '12px 16px'
+                    productShowClickRatioCell.style.fontSize = '13px'
+                    productShowClickRatioCell.innerText = formatCellText(item.productShowClickRatio)
+
+                    const productShowUcntCell = document.createElement('div')
+                    productShowUcntCell.style.padding = '12px 16px'
+                    productShowUcntCell.style.fontSize = '13px'
+                    productShowUcntCell.innerText = formatCellText(item.productShowUcnt)
+
                     row.appendChild(nameCell)
                     row.appendChild(rankCell)
+                    row.appendChild(payAmtCell)
+                    row.appendChild(payCntCell)
+                    row.appendChild(payUcntCell)
+                    row.appendChild(payUserUnitPriceCell)
+                    row.appendChild(productClickPayRatioCell)
+                    row.appendChild(productClickUcntCell)
+                    row.appendChild(productShowClickRatioCell)
+                    row.appendChild(productShowUcntCell)
                     table.appendChild(row)
                 })
             }
@@ -6205,6 +6746,7 @@
             const footer = document.createElement('div')
             footer.style.marginTop = '24px'
             footer.style.textAlign = 'right'
+            footer.style.flex = '0 0 auto'
 
             const confirmBtn = document.createElement('button')
             confirmBtn.innerText = '我知道了'
@@ -6241,10 +6783,11 @@
             footer.appendChild(syncOnlineExcelBtn)
             footer.appendChild(confirmBtn)
 
+            contentArea.appendChild(header)
+            contentArea.appendChild(table)
             container.appendChild(closeBtn)
-            container.appendChild(titleEl)
-            container.appendChild(subtitle)
-            container.appendChild(table)
+            container.appendChild(headerArea)
+            container.appendChild(contentArea)
             container.appendChild(footer)
 
             overlay.appendChild(container)
