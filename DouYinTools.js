@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         抖店工具箱合并版-3.1.2
-// @version      3.1.1
+// @name         抖店工具箱合并版-3.1.4
+// @version      3.1.4
 // @description  抖店增强工具箱 网页功能增强
 // @author       xchen
 // @match        https://*.jinritemai.com/*
@@ -742,7 +742,8 @@
             stylePatch = {}
         ) {
             const canvas = await html2canvas(targetEl, {
-                logging: false,
+                willReadFrequently: true,
+                logging: true,
                 useCORS: true,
                 scale: 1,
                 onclone: (clonedDoc) => {
@@ -765,7 +766,6 @@
 
             return canvas;
         },
-
         /**
          * 将HTML字符串渲染截图转换为Blob对象
          * @param {string} htmlString - 要转换的HTML字符串
@@ -4149,20 +4149,65 @@
                 sizeValues.forEach(sizeValue => {
                     sizeMap[sizeValue.id] = sizeValue.name
                 })
-                const parseSizeNumber = (sizeText) => {
-                    const match = String(sizeText || '').match(/\d+(\.\d+)?/)
-                    return match ? Number(match[0]) : null
+                const normalizeSizeInfo = (sizeText) => {
+                    const rawText = String(sizeText || '').trim()
+                    if (!rawText) {
+                        return null
+                    }
+                    const rangeMatch = rawText.match(/(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)/)
+                    if (rangeMatch) {
+                        const codePart = `${rangeMatch[1]}${rangeMatch[2]}`.replace(/[^\d]/g, '')
+                        const priceKey = Number(codePart)
+                        if (!codePart || !Number.isFinite(priceKey)) {
+                            return null
+                        }
+                        return {
+                            codePart,
+                            priceKey,
+                            isRange: true
+                        }
+                    }
+                    const singleMatch = rawText.match(/\d+(?:\.\d+)?/)
+                    if (!singleMatch) {
+                        return null
+                    }
+                    const codePart = singleMatch[0].replace(/[^\d]/g, '')
+                    const priceKey = Number(codePart)
+                    if (!codePart || !Number.isFinite(priceKey)) {
+                        return null
+                    }
+                    return {
+                        codePart,
+                        priceKey,
+                        isRange: false
+                    }
                 }
+                const sizeInfoMap = {}
+                sizeValues.forEach(sizeValue => {
+                    sizeInfoMap[sizeValue.id] = normalizeSizeInfo(sizeValue.name)
+                })
                 const sizeNumberList = [...new Set(
-                    Object.values(sizeMap)
-                        .map(sizeName => parseSizeNumber(sizeName))
+                    Object.values(sizeInfoMap)
+                        .map(sizeInfo => sizeInfo && sizeInfo.priceKey)
                         .filter(sizeNum => Number.isFinite(sizeNum))
                 )].sort((a, b) => a - b)
                 const currentMinSize = sizeNumberList.length > 0 ? sizeNumberList[0] : null
                 const currentMaxSize = sizeNumberList.length > 0 ? sizeNumberList[sizeNumberList.length - 1] : null
+                const hasEncodedRangeSize = Object.values(sizeInfoMap).some(sizeInfo => {
+                    if (!sizeInfo || !Number.isFinite(sizeInfo.priceKey)) {
+                        return false
+                    }
+                    return sizeInfo.isRange || String(sizeInfo.priceKey).length >= 4
+                })
                 const buildDefaultPriceRanges = () => {
                     if (!Number.isFinite(currentMinSize) || !Number.isFinite(currentMaxSize)) {
                         return []
+                    }
+                    if (hasEncodedRangeSize) {
+                        return [{
+                            min: currentMinSize,
+                            max: currentMaxSize
+                        }]
                     }
                     const rangeSeeds = [
                         [currentMinSize, 25],
@@ -4239,7 +4284,17 @@
                                     cursor: pointer;
                                     font-weight: 500;
                                 ">码段价格</button>
-                                </div>
+                                <button id="tab-btn-replace" style="
+                                    padding: 4px 8px;
+                                    font-size: 12px;
+                                    border-radius: 6px;
+                                    border: 1px solid rgba(255, 255, 255, 0.4);
+                                    background: transparent;
+                                    color: #ffffff;
+                                    cursor: pointer;
+                                    font-weight: 500;
+                                ">编码替换</button>
+                            </div>
                             </div>
                         <div class="pannel-content-container" style="flex: 1; overflow-y: auto; padding: 20px 32px;">
                             <div id="tab-panel-code" class="pannel-content" style="display: block;">
@@ -4356,7 +4411,7 @@
                                 color: #475569;
                                 font-size: 12px;
                             ">
-                                当前尺码范围：<span id="price-range-current-size">${Number.isFinite(currentMinSize) && Number.isFinite(currentMaxSize) ? `${currentMinSize} - ${currentMaxSize}` : '未解析到可用尺码'}</span>
+                                当前尺码范围：<span id="price-range-current-size">${Number.isFinite(currentMinSize) && Number.isFinite(currentMaxSize) ? `${currentMinSize} - ${currentMaxSize}` : '未解析到可用尺码'}</span>${hasEncodedRangeSize ? '<span style="margin-left:8px;color:#0f766e;">区间尺码按去横杠值匹配（如 24-25 => 2425）</span>' : ''}
                             </div>
                             <div style="
                                 margin-bottom: 12px;
@@ -4418,6 +4473,95 @@
                                 ">清除</button>
                             </div>
                         </div>
+                        <div id="tab-panel-replace" class="pannel-content" style="display: none;">
+                            <div style="
+                                margin-bottom: 16px;
+                                padding: 10px 12px;
+                                background: #f8fafc;
+                                border: 1px solid #e2e8f0;
+                                border-radius: 6px;
+                                color: #475569;
+                                font-size: 12px;
+                            ">
+                                <div style="margin-bottom: 8px; font-weight: 600; color: #334155; font-size: 13px;">
+                                    替换位置
+                                </div>
+                                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                                    <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                                        <input type="radio" name="replace-position" value="any" class="replace-position-radio">
+                                        <span style="color: #475569; font-size: 13px;">不限</span>
+                                    </label>
+                                    <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                                        <input type="radio" name="replace-position" value="prefix" class="replace-position-radio">
+                                        <span style="color: #475569; font-size: 13px;">前缀</span>
+                                    </label>
+                                    <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                                        <input type="radio" name="replace-position" value="suffix" class="replace-position-radio" checked>
+                                        <span style="color: #475569; font-size: 13px;">后缀</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div style="
+                                display: grid;
+                                grid-template-columns: 1fr 1fr;
+                                gap: 16px;
+                                margin-bottom: 16px;
+                            ">
+                                <div>
+                                    <div style="
+                                        font-size: 13px;
+                                        color: #475569;
+                                        margin-bottom: 6px;
+                                        font-weight: 600;
+                                    ">原内容</div>
+                                    <input type="text" 
+                                           id="replace-original-input" 
+                                           value="=="
+                                           placeholder="输入要替换的内容"
+                                           style="
+                                               width: 100%;
+                                               padding: 8px 12px;
+                                               border: 1px solid #d1d5db;
+                                               border-radius: 6px;
+                                               font-size: 13px;
+                                               transition: all 0.2s ease;
+                                           "
+                                           onfocus="this.style.borderColor='#2563eb'; this.style.boxShadow='0 0 0 2px rgba(37, 99, 235, 0.1)'"
+                                           onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'">
+                                </div>
+                                <div>
+                                    <div style="
+                                        font-size: 13px;
+                                        color: #475569;
+                                        margin-bottom: 6px;
+                                        font-weight: 600;
+                                    ">替换内容</div>
+                                    <input type="text" 
+                                           id="replace-new-input" 
+                                           placeholder="输入替换后的内容"
+                                           style="
+                                               width: 100%;
+                                               padding: 8px 12px;
+                                               border: 1px solid #d1d5db;
+                                               border-radius: 6px;
+                                               font-size: 13px;
+                                               transition: all 0.2s ease;
+                                           "
+                                           onfocus="this.style.borderColor='#2563eb'; this.style.boxShadow='0 0 0 2px rgba(37, 99, 235, 0.1)'"
+                                           onblur="this.style.borderColor='#d1d5db'; this.style.boxShadow='none'">
+                                </div>
+                            </div>
+                            <div style="
+                                padding: 10px 12px;
+                                background: #f0f9ff;
+                                border: 1px solid #bae6fd;
+                                border-radius: 6px;
+                                color: #0369a1;
+                                font-size: 12px;
+                            ">
+                                <strong>说明：</strong>此功能将批量替换商品编码中指定位置的内容。例如：将 "==001" 替换为 "-001"
+                            </div>
+                        </div>
                     </div>
                     <div class="pannel-bottom" style="
                         padding: 6px 32px;
@@ -4467,8 +4611,10 @@
                 const loadingSpinner = modal.querySelector('#loading-spinner')
                 const tabBtnCode = modal.querySelector('#tab-btn-code')
                 const tabBtnPrice = modal.querySelector('#tab-btn-price')
+                const tabBtnReplace = modal.querySelector('#tab-btn-replace')
                 const tabPanelCode = modal.querySelector('#tab-panel-code')
                 const tabPanelPrice = modal.querySelector('#tab-panel-price')
+                const tabPanelReplace = modal.querySelector('#tab-panel-replace')
                 const priceRangeRows = modal.querySelector('#price-range-rows')
                 const addPriceRowBtn = modal.querySelector('#add-price-row')
                 const clearPriceRowsBtn = modal.querySelector('#clear-price-rows')
@@ -4485,10 +4631,14 @@
                 const switchTab = (tabName) => {
                     activeTab = tabName
                     const showCodeTab = tabName === 'code'
+                    const showPriceTab = tabName === 'price'
+                    const showReplaceTab = tabName === 'replace'
                     tabPanelCode.style.display = showCodeTab ? 'block' : 'none'
-                    tabPanelPrice.style.display = showCodeTab ? 'none' : 'block'
+                    tabPanelPrice.style.display = showPriceTab ? 'block' : 'none'
+                    tabPanelReplace.style.display = showReplaceTab ? 'block' : 'none'
                     setTabButtonStyle(tabBtnCode, showCodeTab)
-                    setTabButtonStyle(tabBtnPrice, !showCodeTab)
+                    setTabButtonStyle(tabBtnPrice, showPriceTab)
+                    setTabButtonStyle(tabBtnReplace, showReplaceTab)
                 }
 
                 const addPriceRangeRow = (minSize = '', maxSize = '', price = '') => {
@@ -4594,16 +4744,16 @@
                         const prefix = prefixMap[colorId] || ''
                         const timeSuffix = timeSuffixMap[colorId] && timeSuffixMap[colorId][timeId] ? timeSuffixMap[colorId][timeId] : ''
                         const sizeName = sizeMap[sizeId]
-                        const sizeNum = parseSizeNumber(sizeName)
+                        const sizeInfo = sizeInfoMap[sizeId] || normalizeSizeInfo(sizeName)
                         const lastProductCode = item.form.value._value.code
-                        if (!Number.isFinite(sizeNum)) {
+                        if (!sizeInfo || !Number.isFinite(sizeInfo.priceKey)) {
                             return
                         }
                         // 更新商品编码
                         if (prefix.length > 0 || timeSuffix.length > 0) {
                             let productCode = ''
                             if (prefix.length > 0) {
-                                productCode = prefix + sizeNum + timeSuffix
+                                productCode = prefix + sizeInfo.codePart + timeSuffix
                             } else if (timeSuffix.length > 0) {
                                 productCode = lastProductCode + timeSuffix
                             }
@@ -4616,7 +4766,7 @@
                         if (hasPriceRules && !selectedColorIds.has(String(colorId))) {
                             return
                         }
-                        const matchedRule = hasPriceRules ? priceRules.find(rule => sizeNum >= rule.minSize && sizeNum <= rule.maxSize) : null
+                        const matchedRule = hasPriceRules ? priceRules.find(rule => sizeInfo.priceKey >= rule.minSize && sizeInfo.priceKey <= rule.maxSize) : null
                         if (!matchedRule) {
                             return
                         }
@@ -4625,6 +4775,46 @@
                             priceSetter(matchedRule.price)
                         }
                     })
+                    return true
+                }
+
+                const applyCodeReplace = () => {
+                    const originalText = modal.querySelector('#replace-original-input').value.trim()
+                    const replaceText = modal.querySelector('#replace-new-input').value.trim()
+                    const positionRadio = modal.querySelector('input[name="replace-position"]:checked')
+                    const position = positionRadio ? positionRadio.value : 'suffix'
+
+                    if (!originalText) {
+                        UI.showMessage('error', '请输入原内容')
+                        return false
+                    }
+
+                    tableRows.forEach(item => {
+                        const currentCode = item.form.value._value.code
+                        let newCode = currentCode
+                        if (!currentCode) {
+                            return
+                        }
+                        if (position === 'any') {
+                            newCode = currentCode.split(originalText).join(replaceText)
+                        } else if (position === 'prefix') {
+                            if (currentCode.startsWith(originalText)) {
+                                newCode = replaceText + currentCode.substring(originalText.length)
+                            }
+                        } else if (position === 'suffix') {
+                            if (currentCode.endsWith(originalText)) {
+                                newCode = currentCode.substring(0, currentCode.length - originalText.length) + replaceText
+                            }
+                        }
+
+                        if (newCode !== currentCode) {
+                            const codeSetter = item.form.children.code.value._setter
+                            if (typeof codeSetter === 'function') {
+                                codeSetter(newCode)
+                            }
+                        }
+                    })
+
                     return true
                 }
 
@@ -4694,6 +4884,7 @@
                 initDefaultPriceRows()
                 tabBtnCode.addEventListener('click', () => switchTab('code'))
                 tabBtnPrice.addEventListener('click', () => switchTab('price'))
+                tabBtnReplace.addEventListener('click', () => switchTab('replace'))
 
                 addPriceRowBtn.addEventListener('click', () => addPriceRangeRow())
                 clearPriceRowsBtn.addEventListener('click', () => {
@@ -4712,9 +4903,13 @@
                 submitBtn.addEventListener('click', () => {
                     setLoading(true)
                     let submitSuccess = false
-                    const priceRules = collectPriceRules()
-                    if (priceRules) {
-                        submitSuccess = applyFill(priceRules)
+                    if (activeTab === 'replace') {
+                        submitSuccess = applyCodeReplace()
+                    } else {
+                        const priceRules = collectPriceRules()
+                        if (priceRules) {
+                            submitSuccess = applyFill(priceRules)
+                        }
                     }
                     if (submitSuccess) {
                         modal.remove()
@@ -5660,7 +5855,6 @@
                 UI.showMessage("error", "请先检查模块参数，设置数据登记表格和通知群聊！")
                 return
             }
-            console.log("tableId:", tableId)
             const timestampParts = Utils.getTimestampParts(anchorShiftData.live_start_ts * 1000)
             const sheetName = `${timestampParts.yearShort}年${timestampParts.month}月`
             let sheetId = await DingTalkSDK.getSheetIdByName(tableId, sheetName)
@@ -5743,9 +5937,11 @@
          */
         async screenshotAndSend(anchorName, date, startTime, endTime) {
             const conversationId = this.getConfig("conversationId")
+            console.log("开始截图！");
             const canvas = await Utils.captureWithoutIds(document.documentElement, ['anchor-select-modal-overlay'])
+            console.log("截图成功，开始渲染！");
             canvas.toBlob(async imageBlob => {
-                console.log("截图成功，开始上传！");
+                console.log("渲染成功，开始上传！");
                 const result = await DingTalkSDK.uploadMedia('image', imageBlob, 'image.jpg');
                 console.log("上传成功：", result);
                 const messageContent = `{"title":"直播数据截图","text": "【直播数据截图】 <br/> 主播：${anchorName} <br/> 时间：${date} ${startTime}-${endTime} ![image](${result.mediaId})"}`;
