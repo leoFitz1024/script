@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        抖店工具箱
 // @namespace   doudian-tools
-// @version     1.0.1
+// @version     1.0.2
 // @description 抖店后台增强工具箱
 // @author      xchen
 // @match       https://*.jinritemai.com/*

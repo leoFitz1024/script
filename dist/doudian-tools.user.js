@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        抖店工具箱
 // @namespace   doudian-tools
-// @version     1.0.1
+// @version     1.0.2
 // @description 抖店后台增强工具箱
 // @author      xchen
 // @match       https://*.jinritemai.com/*
@@ -5252,6 +5252,189 @@ textarea.ddt-form-input,
     defaultEnabled: true,
     create: (context) => new ContentRankEnhanceFeature(context)
   };
+  const targetContainerSelector = ".img-default-wrapper, .ecom-dorami-info-card-avatar";
+  const previewClassName = "ddt-product-image-preview";
+  const previewImageClassName = "ddt-product-image-preview-image";
+  const defaultPreviewSize = 320;
+  const minimumPreviewSize = 100;
+  const maximumPreviewSize = 800;
+  const previewSizeStep = 40;
+  const previewOffset = 12;
+  const viewportPadding = 8;
+  class ProductImagePreviewFeature {
+    constructor(context) {
+      this.context = context;
+      this.previewSize = defaultPreviewSize;
+      this.onMouseOver = (event) => this.showPreview(event);
+      this.onMouseMove = (event) => this.movePreview(event);
+      this.onMouseOut = (event) => this.hidePreview(event);
+      this.onWheel = (event) => this.resizePreview(event);
+    }
+    /** 立即创建预览层并注册文档级事件委托，异步图片无需单独挂载。 */
+    init() {
+      ensurePreviewStyle();
+      this.createPreview();
+      document.addEventListener("mouseover", this.onMouseOver);
+      document.addEventListener("mousemove", this.onMouseMove);
+      document.addEventListener("mouseout", this.onMouseOut);
+      document.addEventListener("wheel", this.onWheel, { passive: false });
+      this.context.logger.info("初始化功能：product-image-preview");
+    }
+    /** 销毁预览层并解除所有监听，防止 SPA 路由切换后残留交互。 */
+    destroy() {
+      var _a;
+      document.removeEventListener("mouseover", this.onMouseOver);
+      document.removeEventListener("mousemove", this.onMouseMove);
+      document.removeEventListener("mouseout", this.onMouseOut);
+      document.removeEventListener("wheel", this.onWheel);
+      (_a = this.preview) == null ? void 0 : _a.remove();
+      this.preview = void 0;
+      this.previewImage = void 0;
+      this.activeImage = void 0;
+      this.activeContainer = void 0;
+      this.context.logger.info("销毁功能：product-image-preview");
+    }
+    /** 创建唯一的固定定位预览层。 */
+    createPreview() {
+      const preview = document.createElement("div");
+      const previewImage = document.createElement("img");
+      preview.className = previewClassName;
+      preview.style.display = "none";
+      previewImage.className = previewImageClassName;
+      preview.append(previewImage);
+      const root = document.body ?? document.documentElement;
+      root.append(preview);
+      this.preview = preview;
+      this.previewImage = previewImage;
+    }
+    /** 鼠标进入目标缩略图时显示对应原图。 */
+    showPreview(event) {
+      const container = findTargetContainer(event.target);
+      const image = container == null ? void 0 : container.querySelector("img");
+      const source = (image == null ? void 0 : image.currentSrc) || (image == null ? void 0 : image.src);
+      if (!container || !image || !source || !this.preview || !this.previewImage) {
+        return;
+      }
+      this.activeImage = image;
+      this.activeContainer = container;
+      this.previewSize = defaultPreviewSize;
+      this.previewImage.src = source;
+      this.applyPreviewSize();
+      this.preview.style.display = "block";
+      this.positionPreview(event);
+    }
+    /** 鼠标移动时让预览层持续贴近指针。 */
+    movePreview(event) {
+      if (!this.activeImage || !this.preview) {
+        return;
+      }
+      this.positionPreview(event);
+    }
+    /** 离开当前目标缩略图后隐藏预览层。 */
+    hidePreview(event) {
+      if (!this.activeImage || !this.activeContainer || !this.preview) {
+        return;
+      }
+      const container = findTargetContainer(event.target);
+      if (container !== this.activeContainer || isMovingWithinContainer(event.relatedTarget, this.activeContainer)) {
+        return;
+      }
+      this.activeImage = void 0;
+      this.activeContainer = void 0;
+      this.preview.style.display = "none";
+    }
+    /** 预览显示期间拦截滚轮，并按固定步长调整预览宽度。 */
+    resizePreview(event) {
+      if (!this.activeImage || !this.preview || !this.previewImage) {
+        return;
+      }
+      event.preventDefault();
+      const sizeChange = event.deltaY < 0 ? previewSizeStep : -previewSizeStep;
+      this.previewSize = clamp(this.previewSize + sizeChange, minimumPreviewSize, maximumPreviewSize);
+      this.applyPreviewSize();
+      this.positionPreview(event);
+    }
+    /** 应用当前尺寸，图片高度由浏览器按原始比例自动计算。 */
+    applyPreviewSize() {
+      if (!this.previewImage) {
+        return;
+      }
+      this.previewImage.style.width = `${this.previewSize}px`;
+    }
+    /** 根据预览当前尺寸选择靠近指针且位于视口内的一侧。 */
+    positionPreview(event) {
+      if (!this.preview) {
+        return;
+      }
+      const bounds = this.preview.getBoundingClientRect();
+      const left = getPreviewCoordinate(event.clientX, bounds.width, window.innerWidth);
+      const top = getPreviewCoordinate(event.clientY, bounds.height, window.innerHeight);
+      this.preview.style.left = `${left}px`;
+      this.preview.style.top = `${top}px`;
+    }
+  }
+  function findTargetContainer(target) {
+    if (!(target instanceof Element)) {
+      return void 0;
+    }
+    return target.closest(targetContainerSelector) ?? void 0;
+  }
+  function isMovingWithinContainer(target, container) {
+    return target instanceof Node && container.contains(target);
+  }
+  function getPreviewCoordinate(pointer, previewLength, viewportLength) {
+    const forward = pointer + previewOffset;
+    if (forward + previewLength <= viewportLength - viewportPadding) {
+      return forward;
+    }
+    return Math.max(viewportPadding, pointer - previewLength - previewOffset);
+  }
+  function clamp(value, minimum, maximum) {
+    return Math.min(Math.max(value, minimum), maximum);
+  }
+  function ensurePreviewStyle() {
+    addStyleOnce(
+      "doudian-tools-product-image-preview",
+      `
+.${previewClassName} {
+  position: fixed;
+  z-index: 2147483647;
+  display: none;
+  max-width: calc(100vw - ${viewportPadding * 2}px);
+  max-height: calc(100vh - ${viewportPadding * 2}px);
+  padding: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+.${previewImageClassName} {
+  display: block;
+  width: ${defaultPreviewSize}px;
+  max-width: calc(100vw - ${viewportPadding * 2 + 8}px);
+  max-height: calc(100vh - ${viewportPadding * 2 + 8}px);
+  height: auto;
+  object-fit: contain;
+}
+`
+    );
+  }
+  const productImagePreviewFeature = {
+    id: "product-image-preview",
+    name: "商品图片悬浮预览",
+    description: "悬浮商品缩略图显示大图，并支持滚轮缩放预览尺寸",
+    matches: [
+      /compass\.jinritemai\.com\/shop\/commodity\/product-list/,
+      /compass\.jinritemai\.com\/shop\/merchandise-traffic/,
+      /compass\.jinritemai\.com\/shop\/chance\/product-rank/,
+      /compass\.jinritemai\.com\/shop\/chance\/rank-product/
+    ],
+    defaultEnabled: true,
+    create: (context) => new ProductImagePreviewFeature(context)
+  };
   const allFeatures = [
     productListFeature,
     liveControlFeature,
@@ -5260,7 +5443,8 @@ textarea.ddt-form-input,
     liveScreenFeature,
     shopRankFeature,
     batchAuthApplyFeature,
-    contentRankEnhanceFeature
+    contentRankEnhanceFeature,
+    productImagePreviewFeature
   ];
   class EventBus {
     constructor() {
