@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        抖店工具箱
 // @namespace   doudian-tools
-// @version     1.0.0
+// @version     1.0.1
 // @description 抖店后台增强工具箱
 // @author      xchen
 // @match       https://*.jinritemai.com/*
@@ -821,21 +821,6 @@ textarea.ddt-form-input,
   width: 16px;
   height: 16px;
   accent-color: #1677ff;
-}
-
-.ddt-product-code {
-  margin-top: 2px;
-  color: #86909c;
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.ddt-product-code-text[data-product-code]:not([data-empty="true"]) {
-  cursor: pointer;
-}
-
-.ddt-product-code-text[data-product-code]:not([data-empty="true"]):hover {
-  color: #1677ff;
 }
 
 .ddt-product-list-sync-stock {
@@ -1810,118 +1795,6 @@ textarea.ddt-form-input,
     }
     return 0;
   }
-  const PRODUCT_CODE_FIELD_ID = "3171";
-  function parseProductListCodes(json) {
-    const rows = getRows(json);
-    const codes = /* @__PURE__ */ new Map();
-    for (const row of rows) {
-      const productId = getProductId(row);
-      if (!productId) {
-        continue;
-      }
-      codes.set(productId, getProductCode(row));
-    }
-    return codes;
-  }
-  function getRows(json) {
-    const root = getObject$1(json, "data");
-    if (Array.isArray(root)) {
-      return root;
-    }
-    const rows = root ? getArray(root, "data") : void 0;
-    return rows ?? [];
-  }
-  function getProductId(row) {
-    const value = row.product_id;
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return String(value);
-    }
-    return null;
-  }
-  function getProductCode(row) {
-    const productFormat = getObject$1(row, "product_format_new");
-    const items = productFormat ? getArray(productFormat, PRODUCT_CODE_FIELD_ID) : void 0;
-    const first = items == null ? void 0 : items[0];
-    if (!first || typeof first !== "object") {
-      return null;
-    }
-    const name = first.name;
-    return typeof name === "string" && name.trim() ? name.trim() : null;
-  }
-  function getObject$1(source, key) {
-    if (!source || typeof source !== "object") {
-      return void 0;
-    }
-    const value = source[key];
-    if (Array.isArray(value)) {
-      return value;
-    }
-    return value && typeof value === "object" ? value : void 0;
-  }
-  function getArray(source, key) {
-    const value = source[key];
-    return Array.isArray(value) ? value : void 0;
-  }
-  function renderProductCodes(options) {
-    const root = options.root ?? document;
-    const anchors = root.querySelectorAll('[class^="style_goodsIdNew__"]');
-    for (const anchor of anchors) {
-      const productId = extractProductId(anchor.textContent ?? "");
-      if (!productId) {
-        continue;
-      }
-      const code = options.codeMap.get(productId) ?? null;
-      const node = ensureCodeNode(anchor);
-      const text = `货号: ${code ?? "-"}`;
-      if (node.textContent !== text) {
-        node.textContent = text;
-      }
-      node.dataset.productCode = code ?? "";
-      if (code) {
-        delete node.dataset.empty;
-      } else {
-        node.dataset.empty = "true";
-      }
-    }
-  }
-  function bindProductCodeCopy(root, onCopy) {
-    const handleClick = (event) => {
-      var _a;
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) {
-        return;
-      }
-      const trigger = target.closest(".ddt-product-code-text");
-      if (!trigger || trigger.dataset.empty === "true") {
-        return;
-      }
-      const code = (_a = trigger.dataset.productCode) == null ? void 0 : _a.trim();
-      if (!code) {
-        return;
-      }
-      onCopy(code);
-    };
-    root.addEventListener("click", handleClick);
-    return () => root.removeEventListener("click", handleClick);
-  }
-  function ensureCodeNode(anchor) {
-    const sibling = anchor.nextElementSibling;
-    if (sibling instanceof HTMLDivElement && sibling.classList.contains("ddt-product-code")) {
-      sibling.classList.add("ddt-product-code-text");
-      return sibling;
-    }
-    const node = document.createElement("div");
-    node.className = "ddt-product-code ddt-product-code-text";
-    anchor.insertAdjacentElement("afterend", node);
-    return node;
-  }
-  function extractProductId(text) {
-    const matched = text.match(/(\d+)/);
-    return (matched == null ? void 0 : matched[1]) ?? null;
-  }
   function asRecord$1(value) {
     return value && typeof value === "object" ? value : void 0;
   }
@@ -2195,14 +2068,18 @@ textarea.ddt-form-input,
     if (!oldValue) {
       return;
     }
+    const currentStock = Number(oldValue.stock_num);
+    if (!Number.isFinite(currentStock)) {
+      throw new Error("库存表单缺少有效的当前库存");
+    }
+    const stockDifference = stock - currentStock;
     valueRef.value = {
       ...oldValue,
-      stock_num: stock,
       final_stock: stock,
       change: {
         ...asRecord$1(oldValue.change),
-        type: "inc",
-        num: void 0
+        type: stockDifference < 0 ? "dec" : "inc",
+        num: stockDifference === 0 ? void 0 : Math.abs(stockDifference)
       }
     };
   }
@@ -2594,8 +2471,6 @@ textarea.ddt-form-input,
   class ProductListFeature {
     constructor(context, deps = {}) {
       this.context = context;
-      this.codeMap = /* @__PURE__ */ new Map();
-      this.refreshing = false;
       this.stockSync = new ProductListStockSync({
         logger: context.logger,
         stockService: deps.stockService ?? new JuShuiTanStockService({
@@ -2604,99 +2479,21 @@ textarea.ddt-form-input,
       });
     }
     init() {
-      ensureUiTheme();
-      this.registerRequestListener();
-      this.installCopyHandler();
       this.stockSync.init(document);
-      this.startDomObserver();
-      this.refresh();
       this.context.logger.info("初始化功能：product-list");
     }
     destroy() {
-      var _a, _b;
-      (_a = this.observer) == null ? void 0 : _a.disconnect();
-      this.observer = void 0;
-      (_b = this.unbindCopy) == null ? void 0 : _b.call(this);
-      this.unbindCopy = void 0;
       this.stockSync.destroy(document);
       this.context.logger.info("销毁功能：product-list");
     }
     async syncStock() {
       await this.stockSync.sync();
     }
-    registerRequestListener() {
-      this.context.logger.info("注册产品列表请求监听器");
-      const id = this.context.requestListener.add({
-        id: `${this.context.featureId}.product-list-code`,
-        match: /\/product\/tproduct\/list(?:[/?#]|$)/,
-        methods: ["GET"],
-        onResponse: (payload) => {
-          this.context.logger.info("获取产品列表响应", payload);
-          const parsed = parseProductListCodes(payload.json);
-          if (parsed.size === 0) {
-            this.context.logger.warn("商品列表响应已捕获，但未解析到任何货号数据", {
-              url: payload.url,
-              status: payload.status
-            });
-            return;
-          }
-          for (const [productId, code] of parsed) {
-            this.codeMap.set(productId, code);
-          }
-          this.refresh();
-        }
-      });
-      this.context.disposables.add(() => this.context.requestListener.remove(id));
-    }
-    installCopyHandler() {
-      this.unbindCopy = bindProductCodeCopy(document, (code) => {
-        const clipboard = navigator.clipboard;
-        if (!(clipboard == null ? void 0 : clipboard.writeText)) {
-          return;
-        }
-        void clipboard.writeText(code).catch(() => void 0);
-      });
-      this.context.disposables.add(() => {
-        var _a;
-        return (_a = this.unbindCopy) == null ? void 0 : _a.call(this);
-      });
-    }
-    startDomObserver() {
-      const target = document.body ?? document.documentElement;
-      if (!target) {
-        return;
-      }
-      this.observer = new MutationObserver(() => {
-        this.refresh();
-      });
-      this.observer.observe(target, {
-        childList: true,
-        subtree: true
-      });
-      this.context.disposables.add(() => {
-        var _a;
-        return (_a = this.observer) == null ? void 0 : _a.disconnect();
-      });
-    }
-    refresh() {
-      if (this.refreshing) {
-        return;
-      }
-      this.refreshing = true;
-      try {
-        renderProductCodes({
-          codeMap: this.codeMap,
-          root: document
-        });
-      } finally {
-        this.refreshing = false;
-      }
-    }
   }
   const productListFeature = {
     id: "product-list",
     name: "商品列表增强",
-    description: "商品货号显示、库存弹窗、库存同步、批量标题替换",
+    description: "库存弹窗、库存同步、批量标题替换",
     matches: [/fxg\.jinritemai\.com\/ffa\/g\/list/],
     defaultEnabled: true,
     create: (context) => new ProductListFeature(context)
